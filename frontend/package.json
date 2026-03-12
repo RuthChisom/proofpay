@@ -11,6 +11,8 @@
   "dependencies": {
     "@onflow/fcl": "^1.21.9",
     "@onflow/types": "^1.5.0",
+    "@web3-storage/w3up-client": "^17.3.0",
+    "ethers": "^6.16.0",
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3"
