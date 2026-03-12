@@ -1,37 +1,52 @@
 import { create } from '@web3-storage/w3up-client';
 import { ethers } from 'ethers';
+import { encryptForClient } from './lit';
 
-// ProofPayEscrow ABI snippet for submitProof
+// ProofPayEscrow ABI snippet for submitProof and jobs
 const ESCROW_ABI = [
-  "function submitProof(uint256 jobId, string calldata ipfsHash) external"
+  "function submitProof(uint256 jobId, string calldata ipfsHash) external",
+  "function jobs(uint256) external view returns (address client, address freelancer, uint256 payment, string proofHash, bool accepted, bool completed)"
 ];
 
 const ESCROW_ADDRESS = "0x0000000000000000000000000000000000000000"; // Replace with actual deployed address
 
 /**
- * Uploads a file to Storacha and attaches the CID to a milestone (job) in ProofPayEscrow.
+ * Encrypts a file with Lit Protocol for the client, uploads to Storacha, 
+ * and attaches the CID to a milestone (job) in ProofPayEscrow.
  * 
  * @param file The file to upload.
  * @param jobId The ID of the job/milestone in the contract.
  * @param signer An ethers Signer to authorize the contract transaction.
- * @returns The CID and the transaction hash.
+ * @returns The CID, the encryption metadata, and the transaction hash.
  */
-export async function uploadAndSubmitProof(file: File, jobId: number, signer: ethers.Signer) {
+export async function encryptUploadAndSubmitProof(file: File, jobId: number, signer: ethers.Signer) {
   try {
-    // 1. Initialize Storacha client
-    // Note: In a real app, you'd handle agent/space authorization beforehand
-    const client = await create();
-    
-    // 2. Upload file to Storacha
-    console.log("Uploading file to Storacha...");
-    const link = await client.uploadFile(file);
-    const cid = link.toString();
-    console.log("File uploaded. CID:", cid);
-
-    // 3. Attach CID to the milestone in ProofPayEscrow
-    console.log(`Submitting proof for Job ID: ${jobId}...`);
+    // 0. Fetch client address from the contract to set access control
     const escrowContract = new ethers.Contract(ESCROW_ADDRESS, ESCROW_ABI, signer);
+    console.log(`Fetching details for Job ID: ${jobId}...`);
+    const job = await escrowContract.jobs(jobId);
+    const clientAddress = job.client;
+    console.log(`Client for this job is: ${clientAddress}`);
+
+    // 1. Encrypt the file with Lit Protocol
+    console.log("Encrypting file for client...");
+    const { ciphertext, metadata } = await encryptForClient(file, clientAddress);
+    console.log("File encrypted.");
+
+    // The ciphertext is a Blob. We create a File object for Storacha
+    const encryptedFile = new File([ciphertext], `${file.name}.encrypted`, { type: 'application/octet-stream' });
+
+    // 2. Initialize Storacha client
+    const storageClient = await create();
     
+    // 3. Upload encrypted file to Storacha
+    console.log("Uploading encrypted file to Storacha...");
+    const link = await storageClient.uploadFile(encryptedFile);
+    const cid = link.toString();
+    console.log("Encrypted file uploaded. CID:", cid);
+
+    // 4. Attach CID to the milestone in ProofPayEscrow
+    console.log(`Submitting proof for Job ID: ${jobId}...`);
     const tx = await escrowContract.submitProof(jobId, cid);
     console.log("Transaction sent:", tx.hash);
     
@@ -40,22 +55,12 @@ export async function uploadAndSubmitProof(file: File, jobId: number, signer: et
 
     return {
       cid,
+      encryptionMetadata: metadata,
       txHash: tx.hash,
       receipt
     };
   } catch (error) {
-    console.error("Error in uploadAndSubmitProof:", error);
+    console.error("Error in encryptUploadAndSubmitProof:", error);
     throw error;
   }
 }
-
-/**
- * Example usage in a component:
- * 
- * const handleUpload = async (file, jobId) => {
- *   const provider = new ethers.BrowserProvider(window.ethereum);
- *   const signer = await provider.getSigner();
- *   const result = await uploadAndSubmitProof(file, jobId, signer);
- *   alert(`Work submitted! CID: ${result.cid}`);
- * };
- */

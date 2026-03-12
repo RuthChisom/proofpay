@@ -9,6 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@lit-protocol/auth-helpers": "^8.2.1",
+    "@lit-protocol/constants": "^9.0.1",
+    "@lit-protocol/lit-node-client": "^7.4.0",
     "@onflow/fcl": "^1.21.9",
     "@onflow/types": "^1.5.0",
     "@web3-storage/w3up-client": "^17.3.0",
