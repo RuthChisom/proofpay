@@ -1,5 +1,5 @@
 import * as LitJsSdk from "@lit-protocol/lit-node-client";
-import { LitNetwork } from "@lit-protocol/constants";
+import { encryptFile, decryptToFile } from "@lit-protocol/encryption";
 
 /**
  * Encrypts a file such that only the specified client address can decrypt it.
@@ -11,7 +11,7 @@ import { LitNetwork } from "@lit-protocol/constants";
 export async function encryptForClient(file: File, clientAddress: string) {
   // 1. Initialize LitNodeClient
   const litNodeClient = new LitJsSdk.LitNodeClient({
-    litNetwork: LitNetwork.DatilTestnet,
+    litNetwork: "habanero" as any,
     debug: false,
   });
   await litNodeClient.connect();
@@ -32,10 +32,11 @@ export async function encryptForClient(file: File, clientAddress: string) {
   ];
 
   // 3. Encrypt the file
-  const { ciphertext, dataToEncryptHash } = await LitJsSdk.encryptFile(
+  const { ciphertext, dataToEncryptHash } = await encryptFile(
     {
       file,
       accessControlConditions,
+      chain: "ethereum",
     },
     litNodeClient
   );
@@ -52,14 +53,14 @@ export async function encryptForClient(file: File, clientAddress: string) {
 /**
  * Decrypts a file previously encrypted for a client.
  */
-export async function decryptForClient(ciphertext: string, dataToEncryptHash: string, accessControlConditions: any[]) {
+export async function decryptForClient(ciphertext: any, dataToEncryptHash: string, accessControlConditions: any[]) {
   const litNodeClient = new LitJsSdk.LitNodeClient({
-    litNetwork: LitNetwork.DatilTestnet,
+    litNetwork: "habanero" as any,
     debug: false,
   });
   await litNodeClient.connect();
 
-  const decryptedFileContents = await LitJsSdk.decryptToFile(
+  const decryptedFileContents = await decryptToFile(
     {
       ciphertext,
       dataToEncryptHash,
