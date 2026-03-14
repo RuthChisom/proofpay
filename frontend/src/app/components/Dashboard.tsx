@@ -1,273 +1,248 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { ethers } from "ethers";
-import { PlusCircle, CheckCircle, UploadCloud, User, Briefcase, FileText, ExternalLink, Shield } from "lucide-react";
-import { encryptUploadAndSubmitProof } from "../../lib/escrow";
-
-// ProofPayEscrow ABI snippet
-const ESCROW_ABI = [
-  "function createJob(address freelancer) external payable returns (uint256)",
-  "function acceptJob(uint256 jobId) external",
-  "function submitProof(uint256 jobId, string calldata ipfsHash) external",
-  "function approveWork(uint256 jobId) external",
-  "function jobCount() external view returns (uint256)",
-  "function jobs(uint256) external view returns (address client, address freelancer, uint256 payment, string proofHash, bool accepted, bool completed)"
-];
-
-const ESCROW_ADDRESS = "0x0000000000000000000000000000000000000000"; // Placeholder
+import { useState } from "react";
+import { PlusCircle, CheckCircle, UploadCloud, Briefcase, Zap, Loader2 } from "lucide-react";
+import { useJobs } from "../../hooks/useJobs";
+import { useProofPayEscrow } from "../../hooks/useProofPayEscrow";
+import { formatEther } from "viem";
 
 export default function Dashboard({ userAddress }: { userAddress: string }) {
-  const [jobs, setJobs] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"client" | "freelancer">("client");
+  const { jobs, isLoading: jobsLoading, refetch } = useJobs();
+  const { createJob, acceptJob, submitProof, approveWork, isPending, isConfirming } = useProofPayEscrow();
   
-  // Job Creation Form
-  const [freelancerAddr, setFreelancerAddr] = useState("");
-  const [paymentAmount, setPaymentAmount] = useState("");
+  const [activeTab, setActiveTab] = useState<"client" | "freelancer">("client");
+  const [newFreelancer, setNewFreelancer] = useState("");
+  const [newAmount, setNewAmount] = useState("");
 
-  useEffect(() => {
-    fetchJobs();
-  }, [userAddress]);
-
-  const fetchJobs = async () => {
-    setLoading(true);
+  const handleCreateJob = async () => {
+    if (!newFreelancer || !newAmount) return;
     try {
-      const provider = new ethers.BrowserProvider((window as any).ethereum);
-      const contract = new ethers.Contract(ESCROW_ADDRESS, ESCROW_ABI, provider);
-      const count = await contract.jobCount();
-      const allJobs = [];
-
-      for (let i = 0; i < Number(count); i++) {
-        const job = await contract.jobs(i);
-        // Only show relevant jobs
-        if (job.client.toLowerCase() === userAddress.toLowerCase() || 
-            job.freelancer.toLowerCase() === userAddress.toLowerCase()) {
-          allJobs.push({ id: i, ...job });
-        }
-      }
-      setJobs(allJobs);
+      await createJob(newFreelancer, newAmount);
+      setNewFreelancer("");
+      setNewAmount("");
     } catch (err) {
-      console.error("Error fetching jobs:", err);
-    } finally {
-      setLoading(false);
+      console.error("Create job failed:", err);
     }
   };
 
-  const handleCreateJob = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
+  const handleAccept = async (jobId: bigint) => {
     try {
-      const provider = new ethers.BrowserProvider((window as any).ethereum);
-      const signer = await provider.getSigner();
-      const contract = new ethers.Contract(ESCROW_ADDRESS, ESCROW_ABI, signer);
-      
-      const tx = await contract.createJob(freelancerAddr, {
-        value: ethers.parseEther(paymentAmount)
-      });
-      await tx.wait();
-      alert("Job Created Successfully!");
-      fetchJobs();
-    } catch (err) {
-      console.error("Job creation failed:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleAcceptJob = async (jobId: number) => {
-    setLoading(true);
-    try {
-      const provider = new ethers.BrowserProvider((window as any).ethereum);
-      const signer = await provider.getSigner();
-      const contract = new ethers.Contract(ESCROW_ADDRESS, ESCROW_ABI, signer);
-      
-      const tx = await contract.acceptJob(jobId);
-      await tx.wait();
-      fetchJobs();
+      await acceptJob(jobId);
     } catch (err) {
       console.error("Accept job failed:", err);
-    } finally {
-      setLoading(false);
     }
   };
 
-  const handleApproveWork = async (jobId: number) => {
-    setLoading(true);
+  const handleSubmitProof = async (jobId: bigint) => {
+    const proof = prompt("Enter proof of work (e.g., URL or CID):");
+    if (!proof) return;
     try {
-      const provider = new ethers.BrowserProvider((window as any).ethereum);
-      const signer = await provider.getSigner();
-      const contract = new ethers.Contract(ESCROW_ADDRESS, ESCROW_ABI, signer);
-      
-      const tx = await contract.approveWork(jobId);
-      await tx.wait();
-      fetchJobs();
+      await submitProof(jobId, proof);
+    } catch (err) {
+      console.error("Submit proof failed:", err);
+    }
+  };
+
+  const handleApprove = async (jobId: bigint) => {
+    try {
+      await approveWork(jobId);
     } catch (err) {
       console.error("Approve work failed:", err);
-    } finally {
-      setLoading(false);
     }
   };
 
-  const handleFileUpload = async (jobId: number, e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setLoading(true);
-    try {
-      const provider = new ethers.BrowserProvider((window as any).ethereum);
-      const signer = await provider.getSigner();
-      await encryptUploadAndSubmitProof(file, jobId, signer);
-      alert("Proof submitted successfully!");
-      fetchJobs();
-    } catch (err) {
-      console.error("Proof submission failed:", err);
-    } finally {
-      setLoading(false);
+  // Filter jobs based on active tab and user address
+  const filteredJobs = jobs.filter(job => {
+    if (activeTab === "client") {
+      return job.client.toLowerCase() === userAddress.toLowerCase();
+    } else {
+      return job.freelancer.toLowerCase() === userAddress.toLowerCase();
     }
-  };
-
-  const getStatusLabel = (job: any) => {
-    if (job.completed) return <span className="text-green-600 flex items-center gap-1"><CheckCircle size={16}/> Work Approved & Paid</span>;
-    if (job.proofHash !== "") return <span className="text-blue-600 flex items-center gap-1"><FileText size={16}/> Work Submitted (Pending Review)</span>;
-    if (job.accepted) return <span className="text-amber-600 flex items-center gap-1"><Briefcase size={16}/> In Progress (Accepted by Freelancer)</span>;
-    return <span className="text-zinc-500 flex items-center gap-1"><User size={16}/> Awaiting Freelancer Acceptance</span>;
-  };
+  });
 
   return (
-    <div className="w-full max-w-6xl p-6 space-y-8 animate-in fade-in duration-500">
-      <div className="flex justify-between items-center">
+    <div className="w-full max-w-6xl p-6 space-y-8">
+      <div className="bg-indigo-600 rounded-3xl p-8 text-white flex flex-col md:flex-row justify-between items-center shadow-2xl shadow-indigo-500/20 gap-6">
         <div>
-          <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">ProofPay Dashboard</h1>
-          <p className="text-zinc-500 dark:text-zinc-400">Manage your escrow payments and work proofs securely.</p>
+          <h1 className="text-3xl font-black mb-2 flex items-center gap-3">
+            <Zap className="fill-white" /> ProofPay Dashboard
+          </h1>
+          <p className="opacity-90 font-medium text-indigo-100">Flow EVM Escrow System</p>
         </div>
-        <div className="flex p-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg">
+        <div className="flex gap-2 bg-black/20 p-1.5 rounded-2xl backdrop-blur-sm">
           <button 
-            onClick={() => setActiveTab("client")}
-            className={`px-4 py-2 rounded-md transition-all ${activeTab === 'client' ? 'bg-white dark:bg-zinc-700 shadow-sm' : 'text-zinc-500'}`}
+            onClick={() => setActiveTab("client")} 
+            className={`px-6 py-2.5 rounded-xl font-bold transition-all ${activeTab === 'client' ? 'bg-white text-indigo-600 shadow-lg scale-105' : 'text-white hover:bg-white/10'}`}
           >
-            Client View
+            Client Mode
           </button>
           <button 
-            onClick={() => setActiveTab("freelancer")}
-            className={`px-4 py-2 rounded-md transition-all ${activeTab === 'freelancer' ? 'bg-white dark:bg-zinc-700 shadow-sm' : 'text-zinc-500'}`}
+            onClick={() => setActiveTab("freelancer")} 
+            className={`px-6 py-2.5 rounded-xl font-bold transition-all ${activeTab === 'freelancer' ? 'bg-white text-indigo-600 shadow-lg scale-105' : 'text-white hover:bg-white/10'}`}
           >
-            Freelancer View
+            Freelancer Mode
           </button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left Column: Form / Context */}
         <div className="space-y-6">
           {activeTab === "client" && (
-            <div className="p-6 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
-              <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                <PlusCircle className="text-indigo-600" /> Create New Job
+            <div className="p-8 bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
+              <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+                <PlusCircle size={20} className="text-indigo-600"/>
+                Create New Job
               </h2>
-              <form onSubmit={handleCreateJob} className="space-y-4">
+              <div className="space-y-4">
                 <div>
-                  <label className="text-sm font-medium text-zinc-500">Freelancer EVM Address</label>
+                  <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2 block">Freelancer Address</label>
                   <input 
-                    value={freelancerAddr}
-                    onChange={(e) => setFreelancerAddr(e.target.value)}
-                    className="w-full mt-1 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950"
-                    placeholder="0x..."
-                    required
+                    className="w-full p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 focus:ring-2 focus:ring-indigo-500 outline-none transition-all" 
+                    placeholder="0x..." 
+                    value={newFreelancer}
+                    onChange={(e) => setNewFreelancer(e.target.value)}
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-zinc-500">Payment Amount (FLOW)</label>
+                  <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2 block">Amount (FLOW)</label>
                   <input 
+                    className="w-full p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 focus:ring-2 focus:ring-indigo-500 outline-none transition-all" 
+                    placeholder="1.0" 
                     type="number"
-                    step="0.01"
-                    value={paymentAmount}
-                    onChange={(e) => setPaymentAmount(e.target.value)}
-                    className="w-full mt-1 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950"
-                    placeholder="0.0"
-                    required
+                    value={newAmount}
+                    onChange={(e) => setNewAmount(e.target.value)}
                   />
                 </div>
                 <button 
-                  disabled={loading}
-                  className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50"
+                  onClick={handleCreateJob}
+                  disabled={isPending || isConfirming}
+                  className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                  {loading ? "Creating..." : "Deposit & Start Job"}
+                  {(isPending || isConfirming) ? <Loader2 className="animate-spin" /> : <Zap size={18} />}
+                  Create & Deposit
                 </button>
-              </form>
+              </div>
             </div>
           )}
+          
+          <div className="p-8 bg-zinc-950 text-white rounded-3xl border border-zinc-800 flex flex-col gap-4">
+            <h3 className="text-lg font-bold">Network Info</h3>
+            <div className="space-y-3">
+              <div className="flex justify-between text-sm">
+                <span className="text-zinc-500">Network</span>
+                <span className="text-indigo-400 font-mono">Flow EVM Testnet</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-zinc-500">Chain ID</span>
+                <span className="text-indigo-400 font-mono">545</span>
+              </div>
+            </div>
+          </div>
 
-          <div className="p-6 bg-indigo-50 dark:bg-indigo-950/20 rounded-2xl border border-indigo-100 dark:border-indigo-900/50">
-            <h3 className="text-indigo-900 dark:text-indigo-400 font-bold mb-2 flex items-center gap-2">
-              <Shield size={18}/> Flow Account Abstraction
+          <div className="p-8 bg-indigo-900/20 text-indigo-100 rounded-3xl border border-indigo-500/30 flex flex-col gap-4">
+            <h3 className="text-lg font-bold flex items-center gap-2">
+              <CheckCircle size={18} /> Demo Guide
             </h3>
-            <p className="text-sm text-indigo-700 dark:text-indigo-500/80 leading-relaxed">
-              ProofPay uses Lit Protocol encryption and Flow's native AA to ensure that only the client can view sensitive work proofs, while freelancers can submit work gaslessly.
-            </p>
+            <ol className="text-xs space-y-3 list-decimal list-inside text-indigo-200/70">
+              <li>Connect wallet to Flow EVM Testnet</li>
+              <li>Switch to <span className="text-white font-bold">Client Mode</span></li>
+              <li>Create a job for a freelancer address</li>
+              <li>Switch to <span className="text-white font-bold">Freelancer Mode</span></li>
+              <li><span className="text-white font-bold">Accept</span> the job and <span className="text-white font-bold">Submit Proof</span></li>
+              <li>Switch back to <span className="text-white font-bold">Client Mode</span></li>
+              <li><span className="text-white font-bold">Approve</span> and release payment</li>
+            </ol>
           </div>
         </div>
 
-        {/* Right Column: Job List */}
-        <div className="lg:col-span-2 space-y-4">
-          <h2 className="text-xl font-bold px-2">Active Milestones</h2>
-          {jobs.length === 0 ? (
-            <div className="p-12 text-center bg-zinc-50 dark:bg-zinc-950 rounded-2xl border-2 border-dashed border-zinc-200 dark:border-zinc-800">
-              <p className="text-zinc-400">No active jobs found for this account.</p>
+        <div className="lg:col-span-2 space-y-6">
+          <div className="flex justify-between items-center px-2">
+            <h2 className="text-xl font-bold flex items-center gap-2">
+              <Briefcase size={20} className="text-indigo-600"/>
+              {activeTab === "client" ? "My Created Jobs" : "My Assigned Jobs"}
+            </h2>
+            <button 
+              onClick={() => refetch()}
+              className="text-xs font-bold text-indigo-600 hover:text-indigo-700 transition-colors uppercase tracking-widest"
+            >
+              Refresh
+            </button>
+          </div>
+
+          {jobsLoading ? (
+            <div className="flex flex-col items-center justify-center py-20 text-zinc-400 gap-4">
+              <Loader2 className="animate-spin" size={32} />
+              <p>Loading jobs...</p>
+            </div>
+          ) : filteredJobs.length === 0 ? (
+            <div className="p-12 text-center bg-white dark:bg-zinc-900 rounded-3xl border border-dashed border-zinc-200 dark:border-zinc-800 text-zinc-400">
+              No jobs found for this mode.
             </div>
           ) : (
-            jobs.map((job) => (
-              <div key={job.id} className="p-6 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm transition-hover hover:border-indigo-200 dark:hover:border-indigo-900">
-                <div className="flex justify-between items-start mb-4">
+            filteredJobs.map((job) => (
+              <div key={job.id.toString()} className="group p-8 bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm transition-all hover:shadow-xl hover:border-indigo-100 dark:hover:border-indigo-900">
+                <div className="flex justify-between items-start mb-6">
                   <div>
-                    <p className="text-xs font-mono text-zinc-400 mb-1 uppercase tracking-widest">Milestone #{job.id}</p>
-                    <div className="flex items-center gap-2">
-                      <span className="text-2xl font-bold">{ethers.formatEther(job.payment)} FLOW</span>
-                      {getStatusLabel(job)}
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="text-3xl font-black">{formatEther(job.payment)} FLOW</span>
+                      <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                        job.completed ? 'bg-green-100 text-green-700' : 
+                        job.proofHash ? 'bg-amber-100 text-amber-700' : 
+                        job.accepted ? 'bg-blue-100 text-blue-700' : 
+                        'bg-zinc-100 text-zinc-700'
+                      }`}>
+                        {job.completed ? 'Completed' : job.proofHash ? 'In Review' : job.accepted ? 'In Progress' : 'Pending Accept'}
+                      </span>
                     </div>
+                    <p className="text-xs font-mono text-zinc-500">Job ID: {job.id.toString()}</p>
                   </div>
-                  {job.proofHash && (
-                    <a 
-                      href={`https://ipfs.io/ipfs/${job.proofHash}`} 
-                      target="_blank" 
-                      className="p-2 text-zinc-400 hover:text-indigo-600 transition-colors"
-                      title="View Proof"
-                    >
-                      <ExternalLink size={20}/>
-                    </a>
-                  )}
                 </div>
 
-                <div className="flex gap-3 mt-6">
-                  {/* Freelancer Actions */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                  <div className="p-4 bg-zinc-50 dark:bg-zinc-950 rounded-2xl border border-zinc-100 dark:border-zinc-800">
+                    <span className="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Client</span>
+                    <span className="text-xs font-mono truncate block">{job.client}</span>
+                  </div>
+                  <div className="p-4 bg-zinc-50 dark:bg-zinc-950 rounded-2xl border border-zinc-100 dark:border-zinc-800">
+                    <span className="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Freelancer</span>
+                    <span className="text-xs font-mono truncate block">{job.freelancer}</span>
+                  </div>
+                </div>
+
+                {job.proofHash && (
+                  <div className="mb-8 p-4 bg-amber-50 dark:bg-amber-900/10 rounded-2xl border border-amber-100 dark:border-amber-900/30">
+                    <span className="text-[10px] font-bold text-amber-600 uppercase block mb-1">Proof of Work</span>
+                    <p className="text-sm font-medium truncate">{job.proofHash}</p>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-3">
                   {activeTab === "freelancer" && !job.accepted && (
                     <button 
-                      onClick={() => handleAcceptJob(job.id)}
-                      className="px-6 py-2 bg-zinc-900 dark:bg-zinc-50 text-white dark:text-zinc-900 rounded-lg font-semibold hover:opacity-90 transition-opacity"
+                      onClick={() => handleAccept(job.id)}
+                      disabled={isPending || isConfirming}
+                      className="px-8 py-3 bg-zinc-900 text-white rounded-2xl font-bold hover:bg-black transition-all flex items-center gap-2 disabled:opacity-50"
                     >
                       Accept Job
                     </button>
                   )}
-                  {activeTab === "freelancer" && job.accepted && !job.proofHash && (
-                    <div className="relative overflow-hidden">
-                      <button className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-semibold flex items-center gap-2">
-                        <UploadCloud size={18}/> Submit Proof (CID)
-                      </button>
-                      <input 
-                        type="file" 
-                        onChange={(e) => handleFileUpload(job.id, e)}
-                        className="absolute inset-0 opacity-0 cursor-pointer"
-                      />
-                    </div>
+                  {activeTab === "freelancer" && job.accepted && !job.completed && (
+                    <button 
+                      onClick={() => handleSubmitProof(job.id)}
+                      disabled={isPending || isConfirming}
+                      className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-bold flex items-center gap-2 hover:bg-indigo-700 transition-all disabled:opacity-50"
+                    >
+                      <UploadCloud size={18}/> 
+                      {job.proofHash ? "Update Proof" : "Submit Proof"}
+                    </button>
                   )}
-
-                  {/* Client Actions */}
                   {activeTab === "client" && job.proofHash && !job.completed && (
                     <button 
-                      onClick={() => handleApproveWork(job.id)}
-                      className="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold flex items-center gap-2"
+                      onClick={() => handleApprove(job.id)}
+                      disabled={isPending || isConfirming}
+                      className="px-8 py-3 bg-green-600 text-white rounded-2xl font-bold flex items-center gap-2 hover:bg-green-700 transition-all disabled:opacity-50"
                     >
-                      <CheckCircle size={18}/> Approve & Release Payment
+                      <CheckCircle size={18}/> Release Payment
                     </button>
                   )}
                 </div>

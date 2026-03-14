@@ -1,25 +1,19 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import * as fcl from "@onflow/fcl";
-import "./fcl-config";
+import { useAccount, useConnect, useDisconnect } from "wagmi";
+import { injected } from "wagmi/connectors";
 import Dashboard from "./components/Dashboard";
-import { LogIn, ShieldCheck } from "lucide-react";
+import { ShieldCheck, LogOut, Wallet } from "lucide-react";
 
 export default function Home() {
-  const [user, setUser] = useState<{ loggedIn: boolean | null; addr: string | null }>({ loggedIn: null, addr: null });
+  const { address, isConnected } = useAccount();
+  const { connect } = useConnect();
+  const { disconnect } = useDisconnect();
 
-  useEffect(() => {
-    fcl.currentUser.subscribe((user: any) => setUser(user));
-  }, []);
-
-  const login = () => fcl.authenticate();
-  const logout = () => fcl.unauthenticate();
-
-  if (user.loggedIn) {
+  if (isConnected && address) {
     return (
       <div className="min-h-screen bg-zinc-50 dark:bg-black font-sans">
-        <nav className="border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-8 py-4 flex justify-between items-center">
+        <nav className="border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-8 py-4 flex justify-between items-center text-zinc-900 dark:text-zinc-50">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
               <ShieldCheck className="text-white" size={20} />
@@ -28,19 +22,20 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-4">
             <div className="px-3 py-1 bg-zinc-100 dark:bg-zinc-800 rounded-full text-xs font-mono text-zinc-500">
-              {user.addr}
+              {address.slice(0, 6)}...{address.slice(-4)}
             </div>
             <button 
-              onClick={logout}
-              className="text-sm font-medium text-zinc-500 hover:text-red-600 transition-colors"
+              onClick={() => disconnect()}
+              className="flex items-center gap-2 text-sm font-medium text-zinc-500 hover:text-red-600 transition-colors"
             >
-              Logout
+              <LogOut size={16} />
+              Disconnect
             </button>
           </div>
         </nav>
         
         <main className="flex justify-center py-12">
-          <Dashboard userAddress={user.addr || ""} />
+          <Dashboard userAddress={address} />
         </main>
       </div>
     );
@@ -57,37 +52,38 @@ export default function Home() {
             ProofPay
           </h1>
           <p className="text-lg text-zinc-600 dark:text-zinc-400 leading-relaxed">
-            The future of decentralized freelance payments. Secure escrow, privacy-preserving proofs, and gasless onboarding.
+            Secure freelancer escrow on Flow EVM.
+            Proof-based payments, automated releases.
           </p>
         </div>
 
         <div className="p-8 bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-xl space-y-6">
           <button 
-            onClick={login}
-            className="w-full h-14 flex items-center justify-center gap-3 rounded-2xl bg-zinc-900 dark:bg-zinc-50 text-white dark:text-zinc-900 font-bold text-lg hover:opacity-90 transition-all active:scale-[0.98]"
+            onClick={() => connect({ connector: injected() })}
+            className="w-full h-14 flex items-center justify-center gap-3 rounded-2xl bg-indigo-600 text-white font-bold text-lg hover:bg-indigo-700 transition-all active:scale-[0.98] shadow-lg shadow-indigo-500/20"
           >
-            <LogIn size={20} />
-            Continue with Flow Wallet
+            <Wallet size={20} />
+            Connect Wallet
           </button>
           
           <div className="grid grid-cols-3 gap-4 text-[10px] font-bold uppercase tracking-widest text-zinc-400">
-            <div className="space-y-2">
-              <div className="h-[1px] bg-zinc-100 dark:bg-zinc-800 w-full" />
+            <div className="space-y-2 text-center">
+              <div className="h-[1px] bg-zinc-100 dark:bg-zinc-800 w-full mb-2" />
               <span>Secure</span>
             </div>
-            <div className="space-y-2">
-              <div className="h-[1px] bg-zinc-100 dark:bg-zinc-800 w-full" />
-              <span>Private</span>
+            <div className="space-y-2 text-center">
+              <div className="h-[1px] bg-zinc-100 dark:bg-zinc-800 w-full mb-2" />
+              <span>Flow EVM</span>
             </div>
-            <div className="space-y-2">
-              <div className="h-[1px] bg-zinc-100 dark:bg-zinc-800 w-full" />
-              <span>Decentralized</span>
+            <div className="space-y-2 text-center">
+              <div className="h-[1px] bg-zinc-100 dark:bg-zinc-800 w-full mb-2" />
+              <span>Escrow</span>
             </div>
           </div>
         </div>
 
         <p className="text-sm text-zinc-400">
-          Powered by Flow EVM, Lit Protocol, and Storacha.
+          Powered by Flow EVM Testnet
         </p>
       </div>
     </div>

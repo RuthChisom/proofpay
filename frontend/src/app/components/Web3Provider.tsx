@@ -11,7 +11,7 @@ const flowEVMTestnet = {
   name: "Flow EVM Testnet",
   nativeCurrency: { name: "FLOW", symbol: "FLOW", decimals: 18 },
   rpcUrls: {
-    default: { http: ["https://rest-testnet.onflow.org/evm"] },
+    default: { http: ["https://testnet.evm.nodes.onflow.org"] },
   },
   blockExplorers: {
     default: { name: "FlowScan", url: "https://evm-testnet.flowscan.io" },

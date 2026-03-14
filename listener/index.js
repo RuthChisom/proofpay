@@ -9,7 +9,7 @@ const ESCROW_ABI = [
 ];
 
 const ESCROW_ADDRESS = process.env.ESCROW_ADDRESS || "0x0000000000000000000000000000000000000000";
-const RPC_URL = process.env.RPC_URL || "https://rest-testnet.onflow.org/evm";
+const RPC_URL = process.env.RPC_URL || "https://testnet.evm.nodes.onflow.org";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
