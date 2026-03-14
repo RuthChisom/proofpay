@@ -2,15 +2,16 @@
 
 import { useReadContract, useReadContracts } from "wagmi";
 import { ProofPayEscrow } from "../lib/contracts";
+import { useEffect } from "react";
 
 export function useJobs() {
-  const { data: jobCount } = useReadContract({
+  const { data: jobCount, refetch: refetchCount } = useReadContract({
     address: ProofPayEscrow.address,
     abi: ProofPayEscrow.abi,
     functionName: "jobCount",
   });
 
-  const { data: jobs, isLoading, refetch } = useReadContracts({
+  const { data: jobs, isLoading, refetch: refetchJobs } = useReadContracts({
     contracts: Array.from({ length: Number(jobCount || 0) }).map((_, i) => ({
       address: ProofPayEscrow.address,
       abi: ProofPayEscrow.abi,
@@ -18,6 +19,11 @@ export function useJobs() {
       args: [BigInt(i)],
     })),
   });
+
+  const fullRefetch = async () => {
+    await refetchCount();
+    await refetchJobs();
+  };
 
   const formattedJobs = jobs?.map((result, index) => {
     if (result.status === "success" && result.result) {
@@ -38,7 +44,7 @@ export function useJobs() {
   return {
     jobs: formattedJobs,
     isLoading,
-    refetch,
+    refetch: fullRefetch,
     jobCount: jobCount ? BigInt(jobCount.toString()) : 0n,
   };
 }

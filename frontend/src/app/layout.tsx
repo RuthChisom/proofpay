@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "ProofPay | Decentralized Escrow",
-  description: "Secure, proof-based payments for freelancers on Flow EVM",
+  description: "Secure, proof-based payments for freelancers",
 };
 
 export default function RootLayout({
