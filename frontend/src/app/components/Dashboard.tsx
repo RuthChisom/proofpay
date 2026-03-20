@@ -8,6 +8,15 @@ import { formatEther } from "viem";
 
 const FLOW_USD_RATE = 5; // 1 FLOW = 5 USD for demo
 
+// Mirror of the on-chain Status enum
+const JobStatus = {
+  PENDING: 0,
+  ACCEPTED: 1,
+  PROOF_SUBMITTED: 2,
+  COMPLETED: 3,
+  CANCELLED: 4,
+} as const;
+
 export default function Dashboard({ userAddress }: { userAddress: string }) {
 
   // Expanded Form State
@@ -27,12 +36,12 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
   const [proofForm, setProofForm] = useState({ description: "", link: "" });
 
   const { jobs, isLoading: jobsLoading, refetch, jobCount } = useJobs();
-  const { createJob, acceptJob, submitProof, approveWork, isPending, isConfirming, isConfirmed, error: txError } = useProofPayEscrow();
-  
+  const { createJob, acceptJob, submitProof, approveWork, cancelJob, claimPaymentIfClientInactive, isPending, isConfirming, isConfirmed, error: txError } = useProofPayEscrow();
+
   const [activeTab, setActiveTab] = useState<"client" | "freelancer">("client");
   const [toast, setToast] = useState<{message: string, type: "success" | "error" | "info"} | null>(null);
 
-  // Metadata storage (Local simulation)
+  // Metadata storage (Local simulation — deadline and extra details not on-chain)
   const [metadata, setMetadata] = useState<Record<string, any>>({});
 
   useEffect(() => {
@@ -68,12 +77,12 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
     }
 
     const amountFLOW = (parseFloat(formData.amountUSD) / FLOW_USD_RATE).toString();
-    
+
     try {
-      await createJob(formData.freelancer, amountFLOW);
-      
+      // jobTitle is now stored on-chain
+      await createJob(formData.freelancer, formData.title, amountFLOW);
+
       const tempMetadata = { ...metadata };
-      // nextId should be based on jobCount from contract for consistency
       const nextId = jobCount.toString();
       tempMetadata[nextId] = {
         title: formData.title,
@@ -144,13 +153,13 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
       showToast("Please provide both description and link.", "error");
       return;
     }
-    
-    const combinedProof = JSON.stringify({ 
-      description: proofForm.description, 
-      link: proofForm.link, 
-      timestamp: Date.now() 
+
+    const combinedProof = JSON.stringify({
+      description: proofForm.description,
+      link: proofForm.link,
+      // timestamp recorded on-chain via proofSubmittedAt — not included here
     });
-    
+
     try {
       await submitProof(submittingProofJobId, combinedProof);
     } catch (err) {
@@ -168,36 +177,50 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
     }
   };
 
+  const handleAutoRelease = async (jobId: bigint) => {
+    try {
+      await claimPaymentIfClientInactive(jobId);
+    } catch (err) {
+      console.error("Auto-release failed:", err);
+      showToast("Auto-release failed.", "error");
+    }
+  };
+
+  const handleCancel = async (jobId: bigint) => {
+    try {
+      await cancelJob(jobId);
+    } catch (err) {
+      console.error("Cancel job failed:", err);
+      showToast("Cancel job failed.", "error");
+    }
+  };
+
   const isOverdue = (deadline: string) => {
     if (!deadline) return false;
     return new Date(deadline).getTime() < Date.now();
   };
 
+  // Auto-release check uses on-chain proofSubmittedAt timestamp
   const canAutoRelease = (job: any) => {
-    if (!job || !job.proofHash) return false;
-    try {
-      const proof = JSON.parse(job.proofHash);
-      if (proof.timestamp) {
-        const fortyEightHours = 48 * 60 * 60 * 1000;
-        return Date.now() > proof.timestamp + fortyEightHours;
-      }
-    } catch (e) { return false; }
-    return false;
+    if (!job || job.status !== JobStatus.PROOF_SUBMITTED) return false;
+    const fortyEightHoursMs = 48 * 60 * 60 * 1000;
+    // proofSubmittedAt is in seconds (block.timestamp), convert to ms
+    return Date.now() > Number(job.proofSubmittedAt) * 1000 + fortyEightHoursMs;
   };
 
   const filteredJobs = jobs ? jobs.filter(job => {
     if (!job) return false;
-    const isOwner = activeTab === "client" 
+    const isOwner = activeTab === "client"
       ? job.client.toLowerCase() === userAddress.toLowerCase()
       : job.freelancer.toLowerCase() === userAddress.toLowerCase();
-    
+
     if (activeTab === "freelancer") {
       const jobMeta = metadata[job.id.toString()];
       const isJobOverdue = isOverdue(jobMeta?.deadline);
-      // Freelancer shouldn't see overdue jobs unless they've already accepted it
-      if (isJobOverdue && !job.accepted && !job.completed) return false;
+      // Freelancer shouldn't see overdue jobs unless they've already accepted
+      if (isJobOverdue && job.status === JobStatus.PENDING) return false;
     }
-    
+
     return isOwner;
   }) : [];
 
@@ -205,7 +228,7 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
     <div className="w-full max-w-6xl p-6 space-y-8 relative">
       {toast && (
         <div className={`fixed top-8 right-8 z-50 p-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 ${
-          toast.type === "success" ? "bg-green-600 text-white" : 
+          toast.type === "success" ? "bg-green-600 text-white" :
           toast.type === "error" ? "bg-red-600 text-white" : "bg-indigo-600 text-white"
         }`}>
           {toast.type === "success" ? <CheckCircle size={20}/> : <AlertCircle size={20}/>}
@@ -224,8 +247,8 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
             <div className="space-y-4">
               <div>
                 <label className="text-xs font-bold text-zinc-400 uppercase tracking-widest mb-1 block">Description</label>
-                <textarea 
-                  className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm h-24" 
+                <textarea
+                  className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm h-24"
                   placeholder="What have you completed?"
                   value={proofForm.description}
                   onChange={(e) => setProofForm({...proofForm, description: e.target.value})}
@@ -233,21 +256,21 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
               </div>
               <div>
                 <label className="text-xs font-bold text-zinc-400 uppercase tracking-widest mb-1 block">Proof Link (URL or CID)</label>
-                <input 
-                  className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm" 
+                <input
+                  className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm"
                   placeholder="https://..."
                   value={proofForm.link}
                   onChange={(e) => setProofForm({...proofForm, link: e.target.value})}
                 />
               </div>
               <div className="flex gap-3 pt-2">
-                <button 
+                <button
                   onClick={() => setSubmittingProofJobId(null)}
                   className="flex-1 py-3 bg-zinc-100 dark:bg-zinc-800 rounded-xl font-bold text-sm"
                 >
                   Cancel
                 </button>
-                <button 
+                <button
                   onClick={handleSubmitProof}
                   disabled={isPending || isConfirming}
                   className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2"
@@ -269,33 +292,33 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
               Edit Job Details
             </h2>
             <div className="space-y-4">
-              <input 
-                className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm" 
+              <input
+                className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm"
                 placeholder="Job Title"
                 value={formData.title}
                 onChange={(e) => setFormData({...formData, title: e.target.value})}
               />
-              <textarea 
-                className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm h-24" 
+              <textarea
+                className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm h-24"
                 placeholder="Description"
                 value={formData.description}
                 onChange={(e) => setFormData({...formData, description: e.target.value})}
               />
-              <input 
-                className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm" 
+              <input
+                className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm"
                 type="date"
                 value={formData.deadline}
                 onClick={(e) => (e.target as any).showPicker?.()}
                 onChange={(e) => setFormData({...formData, deadline: e.target.value})}
               />
               <div className="flex gap-3 pt-2">
-                <button 
+                <button
                   onClick={() => { setEditingJobId(null); setFormData({ freelancer: "", amountUSD: "", title: "", description: "", deliverables: "", deadline: "", fileName: "" }); }}
                   className="flex-1 py-3 bg-zinc-100 dark:bg-zinc-800 rounded-xl font-bold text-sm"
                 >
                   Cancel
                 </button>
-                <button 
+                <button
                   onClick={handleEditJobMetadata}
                   className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm"
                 >
@@ -315,14 +338,14 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
           <p className="opacity-90 font-medium text-indigo-100">Flow EVM Escrow System</p>
         </div>
         <div className="flex gap-2 bg-black/20 p-1.5 rounded-2xl backdrop-blur-sm">
-          <button 
-            onClick={() => setActiveTab("client")} 
+          <button
+            onClick={() => setActiveTab("client")}
             className={`px-6 py-2.5 rounded-xl font-bold transition-all ${activeTab === 'client' ? 'bg-white text-indigo-600 shadow-lg scale-105' : 'text-white hover:bg-white/10'}`}
           >
             Client Mode
           </button>
-          <button 
-            onClick={() => setActiveTab("freelancer")} 
+          <button
+            onClick={() => setActiveTab("freelancer")}
             className={`px-6 py-2.5 rounded-xl font-bold transition-all ${activeTab === 'freelancer' ? 'bg-white text-indigo-600 shadow-lg scale-105' : 'text-white hover:bg-white/10'}`}
           >
             Freelancer Mode
@@ -341,8 +364,8 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
               <div className="space-y-4">
                 <div>
                   <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1 block">Title *</label>
-                  <input 
-                    className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm" 
+                  <input
+                    className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm"
                     placeholder="E.g. Website Development"
                     value={formData.title}
                     onChange={(e) => setFormData({...formData, title: e.target.value})}
@@ -350,8 +373,8 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
                 </div>
                 <div>
                   <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1 block">Description *</label>
-                  <textarea 
-                    className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm h-20" 
+                  <textarea
+                    className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm h-20"
                     placeholder="Describe the job requirements..."
                     value={formData.description}
                     onChange={(e) => setFormData({...formData, description: e.target.value})}
@@ -359,8 +382,8 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
                 </div>
                 <div>
                   <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1 block">Freelancer Address *</label>
-                  <input 
-                    className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm" 
+                  <input
+                    className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm"
                     placeholder="0x..."
                     value={formData.freelancer}
                     onChange={(e) => setFormData({...formData, freelancer: e.target.value})}
@@ -370,8 +393,8 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
                   <div>
                     <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1 block">Amount USD *</label>
                     <div className="relative">
-                      <input 
-                        className="w-full p-3 pl-8 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm" 
+                      <input
+                        className="w-full p-3 pl-8 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm"
                         placeholder="USD"
                         type="number"
                         value={formData.amountUSD}
@@ -388,8 +411,8 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
                 </div>
                 <div>
                   <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1 block">Deadline *</label>
-                  <input 
-                    className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm" 
+                  <input
+                    className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm"
                     type="date"
                     value={formData.deadline}
                     onClick={(e) => (e.target as any).showPicker?.()}
@@ -400,16 +423,16 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
                   <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1 block">Job Details (PDF/Image)</label>
                   <div className="flex items-center gap-2 p-3 bg-zinc-50 dark:bg-zinc-950 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors">
                     <FileText size={18} className="text-zinc-400"/>
-                    <input 
-                      type="file" 
-                      className="text-xs w-full" 
-                      accept=".pdf,image/png,image/jpeg" 
+                    <input
+                      type="file"
+                      className="text-xs w-full"
+                      accept=".pdf,image/png,image/jpeg"
                       onChange={(e) => setFormData({...formData, fileName: e.target.files?.[0]?.name || ""})}
                     />
                   </div>
                   {formData.fileName && <p className="text-[10px] text-indigo-600 font-bold mt-1">Selected: {formData.fileName}</p>}
                 </div>
-                <button 
+                <button
                   onClick={handleCreateJob}
                   disabled={isPending || isConfirming}
                   className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2 mt-4 shadow-lg shadow-indigo-500/20"
@@ -420,7 +443,7 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
               </div>
             </div>
           )}
-          
+
           <div className="p-8 bg-indigo-900/20 text-indigo-100 rounded-3xl border border-indigo-500/30 flex flex-col gap-4">
             <h3 className="text-lg font-bold flex items-center gap-2">
               <Info size={18} /> {activeTab === "client" ? "Client Guide" : "Freelancer Guide"}
@@ -471,9 +494,15 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
             filteredJobs.map((job) => {
               const jobMeta = metadata[job.id.toString()] || {};
               const overdue = isOverdue(jobMeta.deadline);
+              const isCompleted = job.status === JobStatus.COMPLETED;
+              const isAccepted = job.status === JobStatus.ACCEPTED || job.status === JobStatus.PROOF_SUBMITTED || isCompleted;
+              const hasProof = job.status === JobStatus.PROOF_SUBMITTED || isCompleted;
               const proof = job.proofHash ? (() => {
                 try { return JSON.parse(job.proofHash); } catch (e) { return { link: job.proofHash }; }
               })() : null;
+
+              // Use on-chain jobTitle if available, fall back to metadata
+              const displayTitle = job.jobTitle || jobMeta.title || `Job #${job.id.toString()}`;
 
               if (jobMeta.rejected && activeTab === 'freelancer') return null;
 
@@ -482,8 +511,8 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
                   <div className="flex justify-between items-start mb-6">
                     <div>
                       <h3 className="text-xl font-bold mb-1 flex items-center gap-2">
-                        {jobMeta.title || `Job #${job.id.toString()}`}
-                        {overdue && !job.completed && (
+                        {displayTitle}
+                        {overdue && !isCompleted && (
                           <span className="px-2 py-0.5 bg-red-100 text-red-600 text-[10px] font-black rounded uppercase">Overdue</span>
                         )}
                         {jobMeta.rejected && (
@@ -491,20 +520,24 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
                         )}
                       </h3>
                       <div className="flex items-center gap-3">
-                        <span className="text-2xl font-black text-indigo-600">{formatEther(job.payment)} FLOW</span>
-                        <span className="text-xs text-zinc-400 font-bold">≈ ${jobMeta.amountUSD || (parseFloat(formatEther(job.payment)) * FLOW_USD_RATE).toFixed(2)}</span>
+                        <span className="text-2xl font-black text-indigo-600">{formatEther(job.totalAmount)} FLOW</span>
+                        <span className="text-xs text-zinc-400 font-bold">≈ ${jobMeta.amountUSD || (parseFloat(formatEther(job.totalAmount)) * FLOW_USD_RATE).toFixed(2)}</span>
                         <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
-                          job.completed ? 'bg-green-100 text-green-700' : 
-                          job.proofHash ? 'bg-amber-100 text-amber-700' : 
-                          job.accepted ? 'bg-blue-100 text-blue-700' : 
+                          isCompleted ? 'bg-green-100 text-green-700' :
+                          job.status === JobStatus.CANCELLED ? 'bg-zinc-100 text-zinc-500' :
+                          hasProof ? 'bg-amber-100 text-amber-700' :
+                          isAccepted ? 'bg-blue-100 text-blue-700' :
                           'bg-zinc-100 text-zinc-700'
                         }`}>
-                          {job.completed ? 'Completed' : job.proofHash ? 'In Review' : job.accepted ? 'Ongoing' : 'Pending'}
+                          {isCompleted ? 'Completed' :
+                           job.status === JobStatus.CANCELLED ? 'Cancelled' :
+                           hasProof ? 'In Review' :
+                           isAccepted ? 'Ongoing' : 'Pending'}
                         </span>
                       </div>
                     </div>
-                    {activeTab === "client" && !job.accepted && (
-                      <button 
+                    {activeTab === "client" && job.status === JobStatus.PENDING && (
+                      <button
                         onClick={() => {
                           setEditingJobId(job.id.toString());
                           setFormData({
@@ -529,9 +562,9 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
                       <span className="text-xs font-mono truncate block">{job.freelancer.slice(0,10)}...{job.freelancer.slice(-4)}</span>
                     </div>
                     {jobMeta.deadline && (
-                      <div className={`p-4 bg-zinc-50 dark:bg-zinc-950 rounded-2xl border ${overdue && !job.completed ? 'border-red-200 dark:border-red-900/30 bg-red-50/30' : 'border-zinc-100 dark:border-zinc-800'}`}>
+                      <div className={`p-4 bg-zinc-50 dark:bg-zinc-950 rounded-2xl border ${overdue && !isCompleted ? 'border-red-200 dark:border-red-900/30 bg-red-50/30' : 'border-zinc-100 dark:border-zinc-800'}`}>
                         <span className="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Deadline</span>
-                        <span className={`text-xs font-bold block ${overdue && !job.completed ? 'text-red-600' : ''}`}>
+                        <span className={`text-xs font-bold block ${overdue && !isCompleted ? 'text-red-600' : ''}`}>
                           {new Date(jobMeta.deadline).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                         </span>
                       </div>
@@ -551,15 +584,15 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
                   )}
 
                   <div className="flex flex-wrap gap-3">
-                    {activeTab === "freelancer" && !job.accepted && !jobMeta.rejected && (
+                    {activeTab === "freelancer" && job.status === JobStatus.PENDING && !jobMeta.rejected && (
                       <>
-                        <button 
-                          onClick={() => handleAccept(job.id)} 
+                        <button
+                          onClick={() => handleAccept(job.id)}
                           className="px-8 py-3 bg-green-600 text-white rounded-2xl font-bold hover:bg-green-700 transition-all shadow-lg shadow-green-500/20"
                         >
                           Accept Job
                         </button>
-                        <button 
+                        <button
                           onClick={() => handleReject(job.id)}
                           className="px-8 py-3 bg-red-50 text-red-600 rounded-2xl font-bold hover:bg-red-100 transition-all border border-red-100"
                         >
@@ -567,29 +600,32 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
                         </button>
                       </>
                     )}
-                    {activeTab === "freelancer" && job.accepted && !job.completed && (
-                      <button 
-                        onClick={() => setSubmittingProofJobId(job.id)} 
+                    {activeTab === "freelancer" && job.status === JobStatus.ACCEPTED && (
+                      <button
+                        onClick={() => setSubmittingProofJobId(job.id)}
                         className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-bold flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/20"
                       >
-                        <UploadCloud size={18}/> {job.proofHash ? "Update Proof" : "Submit Proof"}
+                        <UploadCloud size={18}/> Submit Proof
                       </button>
                     )}
-                    {activeTab === "freelancer" && canAutoRelease(job) && !job.completed && (
-                      <button onClick={() => handleApprove(job.id)} className="px-8 py-3 bg-amber-600 text-white rounded-2xl font-bold flex items-center gap-2 hover:bg-amber-700 animate-pulse shadow-lg shadow-amber-500/20">
+                    {activeTab === "freelancer" && canAutoRelease(job) && (
+                      <button onClick={() => handleAutoRelease(job.id)} className="px-8 py-3 bg-amber-600 text-white rounded-2xl font-bold flex items-center gap-2 hover:bg-amber-700 animate-pulse shadow-lg shadow-amber-500/20">
                         <Clock size={18}/> Claim Payment (Auto-Release)
                       </button>
                     )}
-                    {activeTab === "client" && job.proofHash && !job.completed && (
-                      <button 
-                        onClick={() => handleApprove(job.id)} 
+                    {activeTab === "client" && hasProof && !isCompleted && (
+                      <button
+                        onClick={() => handleApprove(job.id)}
                         className="px-8 py-3 bg-green-600 text-white rounded-2xl font-bold flex items-center gap-2 hover:bg-green-700 transition-all shadow-lg shadow-green-500/20"
                       >
                         <CheckCircle size={18}/> Release Payment
                       </button>
                     )}
-                    {activeTab === "client" && !job.accepted && (
-                      <button className="px-8 py-3 border-2 border-red-200 text-red-500 rounded-2xl font-bold hover:bg-red-50 transition-all flex items-center gap-2">
+                    {activeTab === "client" && job.status === JobStatus.PENDING && (
+                      <button
+                        onClick={() => handleCancel(job.id)}
+                        className="px-8 py-3 border-2 border-red-200 text-red-500 rounded-2xl font-bold hover:bg-red-50 transition-all flex items-center gap-2"
+                      >
                         <XCircle size={18}/> Cancel Job
                       </button>
                     )}
