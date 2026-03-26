@@ -1,16 +1,289 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { PlusCircle, CheckCircle, UploadCloud, Briefcase, Zap, Loader2, Info, AlertCircle, Clock, Edit, XCircle, FileText } from "lucide-react";
-import { useJobs } from "../../hooks/useJobs";
+import { useState } from "react";
+import { useReadContract } from "wagmi";
+import { PlusCircle, CheckCircle, UploadCloud, Briefcase, Zap, Loader2, Info, AlertCircle, Clock, Edit, XCircle, FileText, Star } from "lucide-react";
+import { useJobs, JobStatus } from "../../hooks/useJobs";
 import { useProofPayEscrow } from "../../hooks/useProofPayEscrow";
-import { formatEther } from "viem";
+import { ProofPayEscrow } from "../../lib/contracts";
+import { formatEther, parseEther } from "viem";
 
-const FLOW_USD_RATE = 5; // 1 FLOW = 5 USD for demo
+const FLOW_USD_RATE = 5; // 1 FLOW = $5 for demo
 
+// ─── Per-job card component so hooks can be called per-instance ──────────────
+function JobCard({
+  job,
+  activeTab,
+  userAddress,
+  metadata,
+  releaseAmountInput,
+  onReleaseAmountChange,
+  onAccept,
+  onReject,
+  onOpenProofModal,
+  onReleasePayment,
+  onClaimInactive,
+  onEdit,
+  isPending,
+  isConfirming,
+}: {
+  job: any;
+  activeTab: "client" | "freelancer";
+  userAddress: string;
+  metadata: Record<string, any>;
+  releaseAmountInput: string;
+  onReleaseAmountChange: (val: string) => void;
+  onAccept: (id: bigint) => void;
+  onReject: (id: bigint) => void;
+  onOpenProofModal: (id: bigint) => void;
+  onReleasePayment: (id: bigint, amount: string) => void;
+  onClaimInactive: (id: bigint) => void;
+  onEdit: (id: string) => void;
+  isPending: boolean;
+  isConfirming: boolean;
+}) {
+  const jobMeta = metadata[job.id.toString()] || {};
+
+  // Step 2: read trust score and completed jobs for the freelancer
+  const { data: trustScore } = useReadContract({
+    address: ProofPayEscrow.address,
+    abi: ProofPayEscrow.abi,
+    functionName: "getTrustScore",
+    args: [job.freelancer as `0x${string}`],
+  });
+  const { data: jobsDone } = useReadContract({
+    address: ProofPayEscrow.address,
+    abi: ProofPayEscrow.abi,
+    functionName: "completedJobs",
+    args: [job.freelancer as `0x${string}`],
+  });
+
+  const isOpen = job.status === JobStatus.OPEN;
+  const isAccepted = job.status === JobStatus.ACCEPTED;
+  const isProofSubmitted = job.status === JobStatus.PROOF_SUBMITTED;
+  const isCompleted = job.status === JobStatus.COMPLETED;
+
+  // Step 5: payment progress
+  const pct = job.totalAmount > 0n
+    ? Number((job.releasedAmount * 100n) / job.totalAmount)
+    : 0;
+
+  // Step 6: auto-claim eligibility using on-chain proofSubmittedAt
+  const nowSecs = Math.floor(Date.now() / 1000);
+  const canAutoRelease =
+    isProofSubmitted &&
+    job.proofSubmittedAt > 0n &&
+    BigInt(nowSecs) >= job.proofSubmittedAt + BigInt(48 * 3600);
+
+  const isOverdue = (deadline: string) => {
+    if (!deadline) return false;
+    return new Date(deadline).getTime() < Date.now();
+  };
+  const overdue = isOverdue(jobMeta.deadline);
+
+  const proof = job.proofHash ? (() => {
+    try { return JSON.parse(job.proofHash); } catch { return { link: job.proofHash }; }
+  })() : null;
+
+  const statusLabel = isCompleted ? "Completed"
+    : isProofSubmitted ? "In Review"
+    : isAccepted ? "Ongoing"
+    : "Pending";
+
+  const statusStyle = isCompleted ? "bg-green-100 text-green-700"
+    : isProofSubmitted ? "bg-amber-100 text-amber-700"
+    : isAccepted ? "bg-blue-100 text-blue-700"
+    : "bg-zinc-100 text-zinc-700";
+
+  return (
+    <div className="group p-8 bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm transition-all hover:shadow-xl hover:border-indigo-100 dark:hover:border-indigo-900">
+      {/* Header */}
+      <div className="flex justify-between items-start mb-4">
+        <div className="flex-1 min-w-0">
+          <h3 className="text-xl font-bold mb-1 flex items-center gap-2 flex-wrap">
+            {/* Step 3: on-chain job title */}
+            {job.jobTitle || jobMeta.title || `Job #${job.id.toString()}`}
+            {overdue && !isCompleted && (
+              <span className="px-2 py-0.5 bg-red-100 text-red-600 text-[10px] font-black rounded uppercase">Overdue</span>
+            )}
+            {jobMeta.rejected && (
+              <span className="px-2 py-0.5 bg-zinc-100 text-zinc-600 text-[10px] font-black rounded uppercase">Rejected</span>
+            )}
+          </h3>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-2xl font-black text-indigo-600">{formatEther(job.totalAmount)} FLOW</span>
+            <span className="text-xs text-zinc-400 font-bold">
+              ≈ ${jobMeta.amountUSD || (parseFloat(formatEther(job.totalAmount)) * FLOW_USD_RATE).toFixed(2)}
+            </span>
+            <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${statusStyle}`}>
+              {statusLabel}
+            </span>
+            {/* Step 3: Verified Payment Ready badge */}
+            {job.totalAmount > 0n && (
+              <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-emerald-100 text-emerald-700 flex items-center gap-1">
+                ✅ Funds Locked in Escrow
+              </span>
+            )}
+          </div>
+        </div>
+        {activeTab === "client" && isOpen && (
+          <button
+            onClick={() => onEdit(job.id.toString())}
+            className="p-2 bg-zinc-50 dark:bg-zinc-800 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-900/30 text-zinc-400 hover:text-indigo-600 transition-colors ml-4 shrink-0"
+          >
+            <Edit size={18} />
+          </button>
+        )}
+      </div>
+
+      {jobMeta.description && (
+        <p className="text-sm text-zinc-500 mb-6 leading-relaxed">{jobMeta.description}</p>
+      )}
+
+      {/* Info grid */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+        <div className="p-4 bg-zinc-50 dark:bg-zinc-950 rounded-2xl border border-zinc-100 dark:border-zinc-800">
+          <span className="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Freelancer</span>
+          <span className="text-xs font-mono truncate block">{job.freelancer.slice(0, 10)}...{job.freelancer.slice(-4)}</span>
+          {/* Step 2: trust score */}
+          {trustScore !== undefined && (
+            <span className="text-[10px] text-amber-500 font-bold mt-1 flex items-center gap-1">
+              <Star size={10} className="fill-amber-400 text-amber-400" />
+              Trust {trustScore?.toString()} · {jobsDone?.toString() || "0"} jobs
+            </span>
+          )}
+        </div>
+        {jobMeta.deadline && (
+          <div className={`p-4 bg-zinc-50 dark:bg-zinc-950 rounded-2xl border ${overdue && !isCompleted ? "border-red-200 dark:border-red-900/30 bg-red-50/30" : "border-zinc-100 dark:border-zinc-800"}`}>
+            <span className="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Deadline</span>
+            <span className={`text-xs font-bold block ${overdue && !isCompleted ? "text-red-600" : ""}`}>
+              {new Date(jobMeta.deadline).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Step 5: payment progress bar */}
+      {job.totalAmount > 0n && (
+        <div className="mb-6">
+          <div className="flex justify-between text-xs font-bold text-zinc-500 mb-2">
+            <span>{formatEther(job.releasedAmount)} FLOW released</span>
+            <span>{pct}% of {formatEther(job.totalAmount)} FLOW</span>
+          </div>
+          <div className="w-full h-3 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-indigo-500 rounded-full transition-all duration-500"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Proof display */}
+      {proof && (
+        <div className="mb-6 p-6 bg-amber-50 dark:bg-amber-900/10 rounded-2xl border border-amber-100 dark:border-amber-900/30">
+          <span className="text-[10px] font-bold text-amber-600 uppercase flex items-center gap-2 mb-3">
+            <UploadCloud size={14} /> Proof of Work Submitted
+          </span>
+          <p className="text-sm font-medium mb-3 text-zinc-700 dark:text-zinc-300">{proof.description || "Work submitted"}</p>
+          <a
+            href={proof.link}
+            target="_blank"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-zinc-800 rounded-xl text-xs text-indigo-600 font-bold border border-indigo-100 dark:border-indigo-900/50 hover:shadow-md transition-all"
+          >
+            View Submission <Zap size={12} />
+          </a>
+        </div>
+      )}
+
+      {/* Step 4: Partial payment release UI (client only, after proof submitted) */}
+      {activeTab === "client" && isProofSubmitted && !isCompleted && (
+        <div className="mb-6 p-6 bg-green-50 dark:bg-green-900/10 rounded-2xl border border-green-100 dark:border-green-900/30 space-y-4">
+          <div className="grid grid-cols-3 gap-3 text-center">
+            <div>
+              <span className="text-[10px] font-bold text-zinc-400 uppercase block">Total Escrow</span>
+              <span className="text-sm font-black text-zinc-800 dark:text-zinc-100">{formatEther(job.totalAmount)} FLOW</span>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold text-zinc-400 uppercase block">Released</span>
+              <span className="text-sm font-black text-green-600">{formatEther(job.releasedAmount)} FLOW</span>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold text-zinc-400 uppercase block">Remaining</span>
+              <span className="text-sm font-black text-indigo-600">{formatEther(job.totalAmount - job.releasedAmount)} FLOW</span>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="Amount to release (FLOW)"
+              value={releaseAmountInput}
+              onChange={(e) => onReleaseAmountChange(e.target.value)}
+              className="flex-1 p-3 rounded-xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700 text-sm"
+            />
+            <button
+              onClick={() => onReleasePayment(job.id, releaseAmountInput)}
+              disabled={isPending || isConfirming || !releaseAmountInput}
+              className="px-6 py-3 bg-green-600 text-white rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-green-700 transition-all disabled:opacity-50"
+            >
+              {(isPending || isConfirming) ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle size={16} />}
+              Release
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Action buttons */}
+      <div className="flex flex-wrap gap-3">
+        {activeTab === "freelancer" && isOpen && !jobMeta.rejected && (
+          <>
+            <button
+              onClick={() => onAccept(job.id)}
+              className="px-8 py-3 bg-green-600 text-white rounded-2xl font-bold hover:bg-green-700 transition-all shadow-lg shadow-green-500/20"
+            >
+              Accept Job
+            </button>
+            <button
+              onClick={() => onReject(job.id)}
+              className="px-8 py-3 bg-red-50 text-red-600 rounded-2xl font-bold hover:bg-red-100 transition-all border border-red-100"
+            >
+              Reject Job
+            </button>
+          </>
+        )}
+        {activeTab === "freelancer" && isAccepted && !isCompleted && (
+          <button
+            onClick={() => onOpenProofModal(job.id)}
+            className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-bold flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/20"
+          >
+            <UploadCloud size={18} /> {isProofSubmitted ? "Update Proof" : "Submit Proof"}
+          </button>
+        )}
+        {/* Step 6: auto-claim after 48h */}
+        {activeTab === "freelancer" && canAutoRelease && !isCompleted && (
+          <button
+            onClick={() => onClaimInactive(job.id)}
+            disabled={isPending || isConfirming}
+            className="px-8 py-3 bg-amber-600 text-white rounded-2xl font-bold flex items-center gap-2 hover:bg-amber-700 animate-pulse shadow-lg shadow-amber-500/20 disabled:opacity-50"
+          >
+            <Clock size={18} /> Claim Payment (Auto-Release)
+          </button>
+        )}
+        {activeTab === "client" && isOpen && (
+          <button className="px-8 py-3 border-2 border-red-200 text-red-500 rounded-2xl font-bold hover:bg-red-50 transition-all flex items-center gap-2">
+            <XCircle size={18} /> Cancel Job
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Dashboard ───────────────────────────────────────────────────────────
 export default function Dashboard({ userAddress }: { userAddress: string }) {
 
-  // Expanded Form State
   const [formData, setFormData] = useState({
     freelancer: "",
     amountUSD: "",
@@ -18,124 +291,90 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
     description: "",
     deliverables: "",
     deadline: "",
-    fileName: "" // To capture and display file name for demo
+    fileName: "",
   });
 
-  // Modal states
   const [editingJobId, setEditingJobId] = useState<string | null>(null);
   const [submittingProofJobId, setSubmittingProofJobId] = useState<bigint | null>(null);
   const [proofForm, setProofForm] = useState({ description: "", link: "" });
+  // Step 4: per-job release amount inputs
+  const [releaseAmountInputs, setReleaseAmountInputs] = useState<Record<string, string>>({});
 
   const { jobs, isLoading: jobsLoading, refetch, jobCount } = useJobs();
-  const { createJob, acceptJob, submitProof, approveWork, isPending, isConfirming, isConfirmed, error: txError } = useProofPayEscrow();
-  
+  const { createJob, acceptJob, submitProof, releasePayment, claimPaymentIfClientInactive, isPending, isConfirming, isConfirmed, error: txError } = useProofPayEscrow();
+
   const [activeTab, setActiveTab] = useState<"client" | "freelancer">("client");
-  const [toast, setToast] = useState<{message: string, type: "success" | "error" | "info"} | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
+  const [metadata, setMetadata] = useState<Record<string, any>>(() => {
+    if (typeof window === "undefined") return {};
+    try { return JSON.parse(localStorage.getItem("proofpay_metadata") || "{}"); } catch { return {}; }
+  });
 
-  // Metadata storage (Local simulation)
-  const [metadata, setMetadata] = useState<Record<string, any>>({});
+  // Reload after confirmed tx
+  if (isConfirmed && toast?.message !== "Transaction successful!") {
+    showToast("Transaction successful!", "success");
+    setTimeout(() => refetch(), 1000);
+    setTimeout(() => refetch(), 3000);
+    setSubmittingProofJobId(null);
+    setEditingJobId(null);
+    setProofForm({ description: "", link: "" });
+  }
+  if (txError && toast?.type !== "error") {
+    showToast(`Transaction failed: ${txError.message || "Please try again."}`, "error");
+  }
 
-  useEffect(() => {
-    const savedMetadata = localStorage.getItem("proofpay_metadata");
-    if (savedMetadata) setMetadata(JSON.parse(savedMetadata));
-  }, []);
-
-  useEffect(() => {
-    if (isConfirmed) {
-      showToast("Transaction successful!", "success");
-      // Use a longer timeout or refetch multiple times to ensure sync
-      setTimeout(() => refetch(), 1000);
-      setTimeout(() => refetch(), 3000);
-      setSubmittingProofJobId(null);
-      setEditingJobId(null);
-      setProofForm({ description: "", link: "" });
-    }
-    if (txError) {
-      showToast(`Transaction failed: ${txError.message || "Please try again."}`, "error");
-    }
-  }, [isConfirmed, txError, refetch]);
-
-  const showToast = (message: string, type: "success" | "error" | "info") => {
+  function showToast(message: string, type: "success" | "error" | "info") {
     setToast({ message, type });
     setTimeout(() => setToast(null), 5000);
-  };
+  }
 
   const handleCreateJob = async () => {
-    // Validation
     if (!formData.title || !formData.description || !formData.freelancer || !formData.amountUSD || !formData.deadline) {
-      showToast("Please fill in all required fields (Title, Description, Freelancer, Amount, Deadline)", "error");
+      showToast("Please fill in all required fields.", "error");
       return;
     }
-
     const amountFLOW = (parseFloat(formData.amountUSD) / FLOW_USD_RATE).toString();
-    
     try {
-      await createJob(formData.freelancer, amountFLOW);
-      
-      const tempMetadata = { ...metadata };
-      // nextId should be based on jobCount from contract for consistency
-      const nextId = jobCount.toString();
-      tempMetadata[nextId] = {
-        title: formData.title,
-        description: formData.description,
-        deliverables: formData.deliverables,
-        deadline: formData.deadline,
-        amountUSD: formData.amountUSD,
-        fileName: formData.fileName,
-        createdAt: Date.now()
-      };
-      setMetadata(tempMetadata);
-      localStorage.setItem("proofpay_metadata", JSON.stringify(tempMetadata));
+      // Fix: pass jobTitle as second argument
+      await createJob(formData.freelancer, formData.title, amountFLOW);
 
-      setFormData({
-        freelancer: "",
-        amountUSD: "",
-        title: "",
-        description: "",
-        deliverables: "",
-        deadline: "",
-        fileName: ""
-      });
+      const nextId = jobCount.toString();
+      const updated = {
+        ...metadata,
+        [nextId]: {
+          title: formData.title,
+          description: formData.description,
+          deliverables: formData.deliverables,
+          deadline: formData.deadline,
+          amountUSD: formData.amountUSD,
+          fileName: formData.fileName,
+          createdAt: Date.now(),
+        },
+      };
+      setMetadata(updated);
+      localStorage.setItem("proofpay_metadata", JSON.stringify(updated));
+      setFormData({ freelancer: "", amountUSD: "", title: "", description: "", deliverables: "", deadline: "", fileName: "" });
     } catch (err) {
-      console.error("Create job failed:", err);
       showToast("Failed to initiate transaction.", "error");
     }
   };
 
   const handleEditJobMetadata = () => {
     if (!editingJobId) return;
-    const tempMetadata = { ...metadata };
-    tempMetadata[editingJobId] = {
-      ...tempMetadata[editingJobId],
-      title: formData.title,
-      description: formData.description,
-      deadline: formData.deadline,
+    const updated = {
+      ...metadata,
+      [editingJobId]: {
+        ...metadata[editingJobId],
+        title: formData.title,
+        description: formData.description,
+        deadline: formData.deadline,
+      },
     };
-    setMetadata(tempMetadata);
-    localStorage.setItem("proofpay_metadata", JSON.stringify(tempMetadata));
+    setMetadata(updated);
+    localStorage.setItem("proofpay_metadata", JSON.stringify(updated));
     setEditingJobId(null);
     showToast("Job updated successfully!", "success");
     setFormData({ freelancer: "", amountUSD: "", title: "", description: "", deliverables: "", deadline: "", fileName: "" });
-  };
-
-  const handleAccept = async (jobId: bigint) => {
-    try {
-      await acceptJob(jobId);
-    } catch (err) {
-      console.error("Accept job failed:", err);
-      showToast("Accepting job failed.", "error");
-    }
-  };
-
-  const handleReject = (jobId: bigint) => {
-    const tempMetadata = { ...metadata };
-    tempMetadata[jobId.toString()] = {
-      ...tempMetadata[jobId.toString()],
-      rejected: true
-    };
-    setMetadata(tempMetadata);
-    localStorage.setItem("proofpay_metadata", JSON.stringify(tempMetadata));
-    showToast("Job rejected.", "info");
   };
 
   const handleSubmitProof = async () => {
@@ -144,71 +383,67 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
       showToast("Please provide both description and link.", "error");
       return;
     }
-    
-    const combinedProof = JSON.stringify({ 
-      description: proofForm.description, 
-      link: proofForm.link, 
-      timestamp: Date.now() 
-    });
-    
+    const combinedProof = JSON.stringify({ description: proofForm.description, link: proofForm.link, timestamp: Date.now() });
     try {
       await submitProof(submittingProofJobId, combinedProof);
-    } catch (err) {
-      console.error("Submit proof failed:", err);
+    } catch {
       showToast("Failed to submit proof.", "error");
     }
   };
 
-  const handleApprove = async (jobId: bigint) => {
+  const handleReleasePayment = async (jobId: bigint, amount: string) => {
+    if (!amount || parseFloat(amount) <= 0) {
+      showToast("Enter a valid release amount.", "error");
+      return;
+    }
     try {
-      await approveWork(jobId);
-    } catch (err) {
-      console.error("Approve work failed:", err);
-      showToast("Approving work failed.", "error");
+      await releasePayment(jobId, amount);
+      setReleaseAmountInputs((prev) => ({ ...prev, [jobId.toString()]: "" }));
+    } catch {
+      showToast("Failed to release payment.", "error");
     }
   };
 
-  const isOverdue = (deadline: string) => {
-    if (!deadline) return false;
-    return new Date(deadline).getTime() < Date.now();
-  };
-
-  const canAutoRelease = (job: any) => {
-    if (!job || !job.proofHash) return false;
+  const handleClaimInactive = async (jobId: bigint) => {
     try {
-      const proof = JSON.parse(job.proofHash);
-      if (proof.timestamp) {
-        const fortyEightHours = 48 * 60 * 60 * 1000;
-        return Date.now() > proof.timestamp + fortyEightHours;
-      }
-    } catch (e) { return false; }
-    return false;
+      await claimPaymentIfClientInactive(jobId);
+    } catch {
+      showToast("Claim failed.", "error");
+    }
   };
 
-  const filteredJobs = jobs ? jobs.filter(job => {
+  const handleReject = (jobId: bigint) => {
+    const updated = {
+      ...metadata,
+      [jobId.toString()]: { ...metadata[jobId.toString()], rejected: true },
+    };
+    setMetadata(updated);
+    localStorage.setItem("proofpay_metadata", JSON.stringify(updated));
+    showToast("Job rejected.", "info");
+  };
+
+  const isOverdue = (deadline: string) => !!deadline && new Date(deadline).getTime() < Date.now();
+
+  const filteredJobs = (jobs || []).filter((job) => {
     if (!job) return false;
-    const isOwner = activeTab === "client" 
+    const isOwner = activeTab === "client"
       ? job.client.toLowerCase() === userAddress.toLowerCase()
       : job.freelancer.toLowerCase() === userAddress.toLowerCase();
-    
     if (activeTab === "freelancer") {
       const jobMeta = metadata[job.id.toString()];
-      const isJobOverdue = isOverdue(jobMeta?.deadline);
-      // Freelancer shouldn't see overdue jobs unless they've already accepted it
-      if (isJobOverdue && !job.accepted && !job.completed) return false;
+      if (isOverdue(jobMeta?.deadline) && job.status === JobStatus.OPEN) return false;
     }
-    
     return isOwner;
-  }) : [];
+  });
 
   return (
     <div className="w-full max-w-6xl p-6 space-y-8 relative">
       {toast && (
         <div className={`fixed top-8 right-8 z-50 p-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 ${
-          toast.type === "success" ? "bg-green-600 text-white" : 
+          toast.type === "success" ? "bg-green-600 text-white" :
           toast.type === "error" ? "bg-red-600 text-white" : "bg-indigo-600 text-white"
         }`}>
-          {toast.type === "success" ? <CheckCircle size={20}/> : <AlertCircle size={20}/>}
+          {toast.type === "success" ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
           <span className="font-bold">{toast.message}</span>
         </div>
       )}
@@ -218,41 +453,38 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-zinc-900 rounded-3xl p-8 max-w-md w-full shadow-2xl space-y-6">
             <h2 className="text-2xl font-bold flex items-center gap-2">
-              <UploadCloud size={24} className="text-indigo-600"/>
+              <UploadCloud size={24} className="text-indigo-600" />
               Submit Proof of Work
             </h2>
             <div className="space-y-4">
               <div>
                 <label className="text-xs font-bold text-zinc-400 uppercase tracking-widest mb-1 block">Description</label>
-                <textarea 
-                  className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm h-24" 
+                <textarea
+                  className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm h-24"
                   placeholder="What have you completed?"
                   value={proofForm.description}
-                  onChange={(e) => setProofForm({...proofForm, description: e.target.value})}
+                  onChange={(e) => setProofForm({ ...proofForm, description: e.target.value })}
                 />
               </div>
               <div>
                 <label className="text-xs font-bold text-zinc-400 uppercase tracking-widest mb-1 block">Proof Link (URL or CID)</label>
-                <input 
-                  className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm" 
+                <input
+                  className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm"
                   placeholder="https://..."
                   value={proofForm.link}
-                  onChange={(e) => setProofForm({...proofForm, link: e.target.value})}
+                  onChange={(e) => setProofForm({ ...proofForm, link: e.target.value })}
                 />
               </div>
               <div className="flex gap-3 pt-2">
-                <button 
-                  onClick={() => setSubmittingProofJobId(null)}
-                  className="flex-1 py-3 bg-zinc-100 dark:bg-zinc-800 rounded-xl font-bold text-sm"
-                >
+                <button onClick={() => setSubmittingProofJobId(null)} className="flex-1 py-3 bg-zinc-100 dark:bg-zinc-800 rounded-xl font-bold text-sm">
                   Cancel
                 </button>
-                <button 
+                <button
                   onClick={handleSubmitProof}
                   disabled={isPending || isConfirming}
                   className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2"
                 >
-                  {(isPending || isConfirming) ? <Loader2 className="animate-spin" size={18}/> : "Submit Proof"}
+                  {(isPending || isConfirming) ? <Loader2 className="animate-spin" size={18} /> : "Submit Proof"}
                 </button>
               </div>
             </div>
@@ -265,40 +497,37 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-zinc-900 rounded-3xl p-8 max-w-md w-full shadow-2xl space-y-6">
             <h2 className="text-2xl font-bold flex items-center gap-2">
-              <Edit size={24} className="text-indigo-600"/>
+              <Edit size={24} className="text-indigo-600" />
               Edit Job Details
             </h2>
             <div className="space-y-4">
-              <input 
-                className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm" 
+              <input
+                className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm"
                 placeholder="Job Title"
                 value={formData.title}
-                onChange={(e) => setFormData({...formData, title: e.target.value})}
+                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
               />
-              <textarea 
-                className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm h-24" 
+              <textarea
+                className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm h-24"
                 placeholder="Description"
                 value={formData.description}
-                onChange={(e) => setFormData({...formData, description: e.target.value})}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               />
-              <input 
-                className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm" 
+              <input
+                className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm"
                 type="date"
                 value={formData.deadline}
                 onClick={(e) => (e.target as any).showPicker?.()}
-                onChange={(e) => setFormData({...formData, deadline: e.target.value})}
+                onChange={(e) => setFormData({ ...formData, deadline: e.target.value })}
               />
               <div className="flex gap-3 pt-2">
-                <button 
+                <button
                   onClick={() => { setEditingJobId(null); setFormData({ freelancer: "", amountUSD: "", title: "", description: "", deliverables: "", deadline: "", fileName: "" }); }}
                   className="flex-1 py-3 bg-zinc-100 dark:bg-zinc-800 rounded-xl font-bold text-sm"
                 >
                   Cancel
                 </button>
-                <button 
-                  onClick={handleEditJobMetadata}
-                  className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm"
-                >
+                <button onClick={handleEditJobMetadata} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm">
                   Save Changes
                 </button>
               </div>
@@ -307,6 +536,7 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
         </div>
       )}
 
+      {/* Dashboard header */}
       <div className="bg-indigo-600 rounded-3xl p-8 text-white flex flex-col md:flex-row justify-between items-center shadow-2xl shadow-indigo-500/20 gap-6">
         <div>
           <h1 className="text-3xl font-black mb-2 flex items-center gap-3">
@@ -315,15 +545,15 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
           <p className="opacity-90 font-medium text-indigo-100">Flow EVM Escrow System</p>
         </div>
         <div className="flex gap-2 bg-black/20 p-1.5 rounded-2xl backdrop-blur-sm">
-          <button 
-            onClick={() => setActiveTab("client")} 
-            className={`px-6 py-2.5 rounded-xl font-bold transition-all ${activeTab === 'client' ? 'bg-white text-indigo-600 shadow-lg scale-105' : 'text-white hover:bg-white/10'}`}
+          <button
+            onClick={() => setActiveTab("client")}
+            className={`px-6 py-2.5 rounded-xl font-bold transition-all ${activeTab === "client" ? "bg-white text-indigo-600 shadow-lg scale-105" : "text-white hover:bg-white/10"}`}
           >
             Client Mode
           </button>
-          <button 
-            onClick={() => setActiveTab("freelancer")} 
-            className={`px-6 py-2.5 rounded-xl font-bold transition-all ${activeTab === 'freelancer' ? 'bg-white text-indigo-600 shadow-lg scale-105' : 'text-white hover:bg-white/10'}`}
+          <button
+            onClick={() => setActiveTab("freelancer")}
+            className={`px-6 py-2.5 rounded-xl font-bold transition-all ${activeTab === "freelancer" ? "bg-white text-indigo-600 shadow-lg scale-105" : "text-white hover:bg-white/10"}`}
           >
             Freelancer Mode
           </button>
@@ -335,47 +565,47 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
           {activeTab === "client" && (
             <div className="p-8 bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
               <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-                <PlusCircle size={20} className="text-indigo-600"/>
+                <PlusCircle size={20} className="text-indigo-600" />
                 Create New Job
               </h2>
               <div className="space-y-4">
                 <div>
                   <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1 block">Title *</label>
-                  <input 
-                    className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm" 
+                  <input
+                    className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm"
                     placeholder="E.g. Website Development"
                     value={formData.title}
-                    onChange={(e) => setFormData({...formData, title: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                   />
                 </div>
                 <div>
                   <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1 block">Description *</label>
-                  <textarea 
-                    className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm h-20" 
+                  <textarea
+                    className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm h-20"
                     placeholder="Describe the job requirements..."
                     value={formData.description}
-                    onChange={(e) => setFormData({...formData, description: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   />
                 </div>
                 <div>
                   <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1 block">Freelancer Address *</label>
-                  <input 
-                    className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm" 
+                  <input
+                    className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm"
                     placeholder="0x..."
                     value={formData.freelancer}
-                    onChange={(e) => setFormData({...formData, freelancer: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, freelancer: e.target.value })}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1 block">Amount USD *</label>
                     <div className="relative">
-                      <input 
-                        className="w-full p-3 pl-8 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm" 
+                      <input
+                        className="w-full p-3 pl-8 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm"
                         placeholder="USD"
                         type="number"
                         value={formData.amountUSD}
-                        onChange={(e) => setFormData({...formData, amountUSD: e.target.value})}
+                        onChange={(e) => setFormData({ ...formData, amountUSD: e.target.value })}
                       />
                       <span className="absolute left-3 top-3.5 text-zinc-400 text-xs font-bold">$</span>
                     </div>
@@ -388,28 +618,28 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
                 </div>
                 <div>
                   <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1 block">Deadline *</label>
-                  <input 
-                    className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm" 
+                  <input
+                    className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm"
                     type="date"
                     value={formData.deadline}
                     onClick={(e) => (e.target as any).showPicker?.()}
-                    onChange={(e) => setFormData({...formData, deadline: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, deadline: e.target.value })}
                   />
                 </div>
                 <div>
                   <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1 block">Job Details (PDF/Image)</label>
                   <div className="flex items-center gap-2 p-3 bg-zinc-50 dark:bg-zinc-950 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors">
-                    <FileText size={18} className="text-zinc-400"/>
-                    <input 
-                      type="file" 
-                      className="text-xs w-full" 
-                      accept=".pdf,image/png,image/jpeg" 
-                      onChange={(e) => setFormData({...formData, fileName: e.target.files?.[0]?.name || ""})}
+                    <FileText size={18} className="text-zinc-400" />
+                    <input
+                      type="file"
+                      className="text-xs w-full"
+                      accept=".pdf,image/png,image/jpeg"
+                      onChange={(e) => setFormData({ ...formData, fileName: e.target.files?.[0]?.name || "" })}
                     />
                   </div>
                   {formData.fileName && <p className="text-[10px] text-indigo-600 font-bold mt-1">Selected: {formData.fileName}</p>}
                 </div>
-                <button 
+                <button
                   onClick={handleCreateJob}
                   disabled={isPending || isConfirming}
                   className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2 mt-4 shadow-lg shadow-indigo-500/20"
@@ -420,7 +650,7 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
               </div>
             </div>
           )}
-          
+
           <div className="p-8 bg-indigo-900/20 text-indigo-100 rounded-3xl border border-indigo-500/30 flex flex-col gap-4">
             <h3 className="text-lg font-bold flex items-center gap-2">
               <Info size={18} /> {activeTab === "client" ? "Client Guide" : "Freelancer Guide"}
@@ -429,10 +659,10 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
               {activeTab === "client" ? (
                 <>
                   <li>Connect wallet</li>
-                  <li>Create a job for a freelancer</li>
+                  <li>Create a job — funds locked instantly</li>
                   <li>Wait for freelancer to <span className="text-white font-bold">Accept</span></li>
                   <li>Review submitted proof</li>
-                  <li><span className="text-white font-bold">Approve</span> payment</li>
+                  <li><span className="text-white font-bold">Release Payment</span> (full or partial)</li>
                 </>
               ) : (
                 <>
@@ -440,21 +670,22 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
                   <li><span className="text-white font-bold">Accept</span> a job assigned to you</li>
                   <li>Complete work and <span className="text-white font-bold">Submit Proof</span></li>
                   <li>Wait for client approval</li>
-                  <li>Receive payment automatically</li>
+                  <li>After 48h inactivity, <span className="text-white font-bold">Claim Payment</span></li>
                 </>
               )}
             </ol>
           </div>
         </div>
 
+        {/* Job list */}
         <div className="lg:col-span-2 space-y-6">
           <div className="flex justify-between items-center px-2">
             <h2 className="text-xl font-bold flex items-center gap-2">
-              <Briefcase size={20} className="text-indigo-600"/>
+              <Briefcase size={20} className="text-indigo-600" />
               {activeTab === "client" ? "My Projects" : "Assigned Work"}
             </h2>
             <button onClick={() => refetch()} className="text-xs font-bold text-indigo-600 hover:text-indigo-700 uppercase tracking-widest flex items-center gap-1">
-              <Zap size={12}/> Refresh
+              <Zap size={12} /> Refresh
             </button>
           </div>
 
@@ -469,132 +700,30 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
             </div>
           ) : (
             filteredJobs.map((job) => {
+              if (!job) return null;
               const jobMeta = metadata[job.id.toString()] || {};
-              const overdue = isOverdue(jobMeta.deadline);
-              const proof = job.proofHash ? (() => {
-                try { return JSON.parse(job.proofHash); } catch (e) { return { link: job.proofHash }; }
-              })() : null;
-
-              if (jobMeta.rejected && activeTab === 'freelancer') return null;
-
+              if (jobMeta.rejected && activeTab === "freelancer") return null;
               return (
-                <div key={job.id.toString()} className="group p-8 bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm transition-all hover:shadow-xl hover:border-indigo-100 dark:hover:border-indigo-900">
-                  <div className="flex justify-between items-start mb-6">
-                    <div>
-                      <h3 className="text-xl font-bold mb-1 flex items-center gap-2">
-                        {jobMeta.title || `Job #${job.id.toString()}`}
-                        {overdue && !job.completed && (
-                          <span className="px-2 py-0.5 bg-red-100 text-red-600 text-[10px] font-black rounded uppercase">Overdue</span>
-                        )}
-                        {jobMeta.rejected && (
-                          <span className="px-2 py-0.5 bg-zinc-100 text-zinc-600 text-[10px] font-black rounded uppercase">Rejected</span>
-                        )}
-                      </h3>
-                      <div className="flex items-center gap-3">
-                        <span className="text-2xl font-black text-indigo-600">{formatEther(job.payment)} FLOW</span>
-                        <span className="text-xs text-zinc-400 font-bold">≈ ${jobMeta.amountUSD || (parseFloat(formatEther(job.payment)) * FLOW_USD_RATE).toFixed(2)}</span>
-                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
-                          job.completed ? 'bg-green-100 text-green-700' : 
-                          job.proofHash ? 'bg-amber-100 text-amber-700' : 
-                          job.accepted ? 'bg-blue-100 text-blue-700' : 
-                          'bg-zinc-100 text-zinc-700'
-                        }`}>
-                          {job.completed ? 'Completed' : job.proofHash ? 'In Review' : job.accepted ? 'Ongoing' : 'Pending'}
-                        </span>
-                      </div>
-                    </div>
-                    {activeTab === "client" && !job.accepted && (
-                      <button 
-                        onClick={() => {
-                          setEditingJobId(job.id.toString());
-                          setFormData({
-                            ...formData,
-                            title: jobMeta.title || "",
-                            description: jobMeta.description || "",
-                            deadline: jobMeta.deadline || "",
-                          });
-                        }}
-                        className="p-2 bg-zinc-50 dark:bg-zinc-800 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-900/30 text-zinc-400 hover:text-indigo-600 transition-colors"
-                      >
-                        <Edit size={18}/>
-                      </button>
-                    )}
-                  </div>
-
-                  {jobMeta.description && <p className="text-sm text-zinc-500 mb-6 leading-relaxed">{jobMeta.description}</p>}
-
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
-                    <div className="p-4 bg-zinc-50 dark:bg-zinc-950 rounded-2xl border border-zinc-100 dark:border-zinc-800">
-                      <span className="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Freelancer</span>
-                      <span className="text-xs font-mono truncate block">{job.freelancer.slice(0,10)}...{job.freelancer.slice(-4)}</span>
-                    </div>
-                    {jobMeta.deadline && (
-                      <div className={`p-4 bg-zinc-50 dark:bg-zinc-950 rounded-2xl border ${overdue && !job.completed ? 'border-red-200 dark:border-red-900/30 bg-red-50/30' : 'border-zinc-100 dark:border-zinc-800'}`}>
-                        <span className="text-[10px] font-bold text-zinc-400 uppercase block mb-1">Deadline</span>
-                        <span className={`text-xs font-bold block ${overdue && !job.completed ? 'text-red-600' : ''}`}>
-                          {new Date(jobMeta.deadline).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {proof && (
-                    <div className="mb-8 p-6 bg-amber-50 dark:bg-amber-900/10 rounded-2xl border border-amber-100 dark:border-amber-900/30">
-                      <span className="text-[10px] font-bold text-amber-600 uppercase flex items-center gap-2 mb-3">
-                        <UploadCloud size={14}/> Proof of Work Submitted
-                      </span>
-                      <p className="text-sm font-medium mb-3 text-zinc-700 dark:text-zinc-300">{proof.description || "Work submitted"}</p>
-                      <a href={proof.link} target="_blank" className="inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-zinc-800 rounded-xl text-xs text-indigo-600 font-bold border border-indigo-100 dark:border-indigo-900/50 hover:shadow-md transition-all">
-                        View Submission <Zap size={12}/>
-                      </a>
-                    </div>
-                  )}
-
-                  <div className="flex flex-wrap gap-3">
-                    {activeTab === "freelancer" && !job.accepted && !jobMeta.rejected && (
-                      <>
-                        <button 
-                          onClick={() => handleAccept(job.id)} 
-                          className="px-8 py-3 bg-green-600 text-white rounded-2xl font-bold hover:bg-green-700 transition-all shadow-lg shadow-green-500/20"
-                        >
-                          Accept Job
-                        </button>
-                        <button 
-                          onClick={() => handleReject(job.id)}
-                          className="px-8 py-3 bg-red-50 text-red-600 rounded-2xl font-bold hover:bg-red-100 transition-all border border-red-100"
-                        >
-                          Reject Job
-                        </button>
-                      </>
-                    )}
-                    {activeTab === "freelancer" && job.accepted && !job.completed && (
-                      <button 
-                        onClick={() => setSubmittingProofJobId(job.id)} 
-                        className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-bold flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/20"
-                      >
-                        <UploadCloud size={18}/> {job.proofHash ? "Update Proof" : "Submit Proof"}
-                      </button>
-                    )}
-                    {activeTab === "freelancer" && canAutoRelease(job) && !job.completed && (
-                      <button onClick={() => handleApprove(job.id)} className="px-8 py-3 bg-amber-600 text-white rounded-2xl font-bold flex items-center gap-2 hover:bg-amber-700 animate-pulse shadow-lg shadow-amber-500/20">
-                        <Clock size={18}/> Claim Payment (Auto-Release)
-                      </button>
-                    )}
-                    {activeTab === "client" && job.proofHash && !job.completed && (
-                      <button 
-                        onClick={() => handleApprove(job.id)} 
-                        className="px-8 py-3 bg-green-600 text-white rounded-2xl font-bold flex items-center gap-2 hover:bg-green-700 transition-all shadow-lg shadow-green-500/20"
-                      >
-                        <CheckCircle size={18}/> Release Payment
-                      </button>
-                    )}
-                    {activeTab === "client" && !job.accepted && (
-                      <button className="px-8 py-3 border-2 border-red-200 text-red-500 rounded-2xl font-bold hover:bg-red-50 transition-all flex items-center gap-2">
-                        <XCircle size={18}/> Cancel Job
-                      </button>
-                    )}
-                  </div>
-                </div>
+                <JobCard
+                  key={job.id.toString()}
+                  job={job}
+                  activeTab={activeTab}
+                  userAddress={userAddress}
+                  metadata={metadata}
+                  releaseAmountInput={releaseAmountInputs[job.id.toString()] || ""}
+                  onReleaseAmountChange={(val) => setReleaseAmountInputs((prev) => ({ ...prev, [job.id.toString()]: val }))}
+                  onAccept={acceptJob}
+                  onReject={handleReject}
+                  onOpenProofModal={setSubmittingProofJobId}
+                  onReleasePayment={handleReleasePayment}
+                  onClaimInactive={handleClaimInactive}
+                  onEdit={(id) => {
+                    setEditingJobId(id);
+                    setFormData({ ...formData, title: jobMeta.title || "", description: jobMeta.description || "", deadline: jobMeta.deadline || "" });
+                  }}
+                  isPending={isPending}
+                  isConfirming={isConfirming}
+                />
               );
             })
           )}
