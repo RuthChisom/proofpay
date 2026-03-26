@@ -64,3 +64,5 @@ $ forge --help
 $ anvil --help
 $ cast --help
 ```
+### ProofPayRegistry deployed at: 0xdB6b147B09d8Ed8ac747AF349130e8A9CBA7B638
+### ProofPayEscrow deployed at: 0x1Aeb9Fa0C7EBF8332C2DC20Dd75b1170160ABd13
