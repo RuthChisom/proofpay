@@ -2,8 +2,8 @@ import ProofPayEscrowABI from "./ProofPayEscrow.json";
 import ProofPayRegistryABI from "./ProofPayRegistry.json";
 
 export const CONFIG = {
-  ESCROW_ADDRESS: "0xdFB2Dcb29dfDBD31b78f7f2f97046Ab1DAcecDA7" as `0x${string}`,
-  REGISTRY_ADDRESS: "0xA9Eaf8E76966b60e9aB63C74a42605E84adF9EcE" as `0x${string}`,
+  ESCROW_ADDRESS: "0x7D674fDE6F3c7ba7583abeCAa5Ce43F15F618B8f" as `0x${string}`,
+  REGISTRY_ADDRESS: "0x8E447A61AA900A586124B823248a8C705b252F3a" as `0x${string}`,
   FLOW_EVM_RPC: "https://testnet.evm.nodes.onflow.org",
   CHAIN_ID: 545,
 };
