@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useReadContract } from "wagmi";
 import { PlusCircle, CheckCircle, UploadCloud, Briefcase, Zap, Loader2, Info, AlertCircle, Clock, Edit, XCircle, FileText, Star } from "lucide-react";
 import { useJobs, JobStatus } from "../../hooks/useJobs";
@@ -310,23 +310,28 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
     try { return JSON.parse(localStorage.getItem("proofpay_metadata") || "{}"); } catch { return {}; }
   });
 
-  // Reload after confirmed tx
-  if (isConfirmed && toast?.message !== "Transaction successful!") {
-    showToast("Transaction successful!", "success");
-    setTimeout(() => refetch(), 1000);
-    setTimeout(() => refetch(), 3000);
-    setSubmittingProofJobId(null);
-    setEditingJobId(null);
-    setProofForm({ description: "", link: "" });
-  }
-  if (txError && toast?.type !== "error") {
-    showToast(`Transaction failed: ${txError.message || "Please try again."}`, "error");
-  }
-
   function showToast(message: string, type: "success" | "error" | "info") {
     setToast({ message, type });
     setTimeout(() => setToast(null), 5000);
   }
+
+  // Reload after confirmed tx
+  useEffect(() => {
+    if (isConfirmed) {
+      showToast("Transaction successful!", "success");
+      setTimeout(() => refetch(), 1000);
+      setTimeout(() => refetch(), 3000);
+      setSubmittingProofJobId(null);
+      setEditingJobId(null);
+      setProofForm({ description: "", link: "" });
+    }
+  }, [isConfirmed]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (txError) {
+      showToast(`Transaction failed: ${txError.message || "Please try again."}`, "error");
+    }
+  }, [txError]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCreateJob = async () => {
     if (!formData.title || !formData.description || !formData.freelancer || !formData.amountUSD || !formData.deadline) {
