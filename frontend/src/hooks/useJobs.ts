@@ -1,9 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useReadContract, useWatchContractEvent } from "wagmi";
-import { readContract } from "wagmi/actions";
-import { config } from "../app/components/Web3Provider";
+import { useWatchContractEvent } from "wagmi";
+import { createPublicClient, custom, http } from "viem";
 import { ProofPayEscrow } from "../lib/contracts";
 
 // Matches the on-chain Status enum: OPEN=0, ACCEPTED=1, PROOF_SUBMITTED=2, COMPLETED=3
@@ -14,13 +13,25 @@ export const JobStatus = {
   COMPLETED: 3,
 } as const;
 
+// Build a public client at call time so window.ethereum is available.
+// Uses MetaMask's injected provider to bypass CORS on the Flow EVM RPC.
+function makeClient() {
+  if (typeof window !== "undefined" && (window as any).ethereum) {
+    return createPublicClient({
+      transport: custom((window as any).ethereum),
+    });
+  }
+  return createPublicClient({
+    transport: http("https://testnet.evm.nodes.onflow.org"),
+  });
+}
+
 function parseJob(raw: any, index: number) {
   // viem may return an array-like tuple or a named-property object
   const get = (i: number, name: string) => {
     const byIndex = raw[i];
     const byName  = raw[name];
-    const val = byIndex !== undefined ? byIndex : byName;
-    return val;
+    return byIndex !== undefined ? byIndex : byName;
   };
 
   const parsed = {
@@ -42,27 +53,39 @@ function parseJob(raw: any, index: number) {
 }
 
 export function useJobs() {
-  const { data: jobCount, refetch: refetchCount } = useReadContract({
-    address: ProofPayEscrow.address,
-    abi: ProofPayEscrow.abi,
-    functionName: "jobCount",
-  });
-
   const [formattedJobs, setFormattedJobs] = useState<any[]>([]);
   const [isLoading, setIsLoading]         = useState(false);
+  const [jobCount, setJobCount]           = useState<bigint>(0n);
 
-  const fetchAllJobs = useCallback(async (count: number) => {
-    console.log("[useJobs] fetchAllJobs count:", count);
-    if (count === 0) {
+  const fetchAllJobs = useCallback(async () => {
+    const client = makeClient();
+
+    // Read jobCount first
+    let count: bigint;
+    try {
+      count = await client.readContract({
+        address: ProofPayEscrow.address as `0x${string}`,
+        abi: ProofPayEscrow.abi,
+        functionName: "jobCount",
+      }) as bigint;
+      console.log("[useJobs] jobCount from chain:", count.toString());
+      setJobCount(count);
+    } catch (err) {
+      console.error("[useJobs] failed to read jobCount:", err);
+      return;
+    }
+
+    if (count === 0n) {
       setFormattedJobs([]);
       return;
     }
+
     setIsLoading(true);
     try {
       const results = await Promise.all(
-        Array.from({ length: count }, (_, i) =>
-          readContract(config, {
-            address: ProofPayEscrow.address,
+        Array.from({ length: Number(count) }, (_, i) =>
+          client.readContract({
+            address: ProofPayEscrow.address as `0x${string}`,
             abi: ProofPayEscrow.abi,
             functionName: "jobs",
             args: [BigInt(i)],
@@ -83,70 +106,76 @@ export function useJobs() {
     }
   }, []);
 
-  // Re-fetch jobs whenever jobCount changes
+  // Initial fetch on mount
   useEffect(() => {
-    const count = Number(jobCount ?? 0);
-    console.log("[useJobs] jobCount changed:", jobCount, "→", count);
-    fetchAllJobs(count);
-  }, [jobCount, fetchAllJobs]);
-
-  const fullRefetch = useCallback(async () => {
-    console.log("[useJobs] fullRefetch start");
-    const result = await refetchCount();
-    const newCount = Number(result.data ?? 0);
-    console.log("[useJobs] fullRefetch newCount:", newCount);
-    await fetchAllJobs(newCount);
-  }, [refetchCount, fetchAllJobs]);
+    fetchAllJobs();
+  }, [fetchAllJobs]);
 
   // Step 7: watch all contract events and auto-refresh
   useWatchContractEvent({
     address: ProofPayEscrow.address,
     abi: ProofPayEscrow.abi,
     eventName: "JobCreated",
-    onLogs: () => { console.log("[useJobs] event: JobCreated"); fullRefetch(); },
+    onLogs: () => { console.log("[useJobs] event: JobCreated"); fetchAllJobs(); },
   });
   useWatchContractEvent({
     address: ProofPayEscrow.address,
     abi: ProofPayEscrow.abi,
     eventName: "JobAccepted",
-    onLogs: () => { console.log("[useJobs] event: JobAccepted"); fullRefetch(); },
+    onLogs: () => { console.log("[useJobs] event: JobAccepted"); fetchAllJobs(); },
   });
   useWatchContractEvent({
     address: ProofPayEscrow.address,
     abi: ProofPayEscrow.abi,
     eventName: "ProofSubmitted",
-    onLogs: () => { console.log("[useJobs] event: ProofSubmitted"); fullRefetch(); },
+    onLogs: () => { console.log("[useJobs] event: ProofSubmitted"); fetchAllJobs(); },
   });
   useWatchContractEvent({
     address: ProofPayEscrow.address,
     abi: ProofPayEscrow.abi,
     eventName: "PaymentReleased",
-    onLogs: () => { console.log("[useJobs] event: PaymentReleased"); fullRefetch(); },
+    onLogs: () => { console.log("[useJobs] event: PaymentReleased"); fetchAllJobs(); },
   });
   useWatchContractEvent({
     address: ProofPayEscrow.address,
     abi: ProofPayEscrow.abi,
     eventName: "JobCompleted",
-    onLogs: () => { console.log("[useJobs] event: JobCompleted"); fullRefetch(); },
+    onLogs: () => { console.log("[useJobs] event: JobCompleted"); fetchAllJobs(); },
   });
 
   return {
     jobs: formattedJobs,
     isLoading,
-    refetch: fullRefetch,
-    jobCount: jobCount !== undefined ? BigInt(jobCount.toString()) : 0n,
+    refetch: fetchAllJobs,
+    jobCount,
   };
 }
 
 export function useJobById(jobId: bigint) {
-  const { data: job, isLoading, refetch } = useReadContract({
-    address: ProofPayEscrow.address,
-    abi: ProofPayEscrow.abi,
-    functionName: "jobs",
-    args: [jobId],
-  });
+  const [job, setJob]           = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const formattedJob = job ? parseJob(job, Number(jobId)) : null;
+  const refetch = useCallback(async () => {
+    const client = makeClient();
+    setIsLoading(true);
+    try {
+      const raw = await client.readContract({
+        address: ProofPayEscrow.address as `0x${string}`,
+        abi: ProofPayEscrow.abi,
+        functionName: "jobs",
+        args: [jobId],
+      });
+      setJob(parseJob(raw, Number(jobId)));
+    } catch (err) {
+      console.error("[useJobById] error:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [jobId]);
 
-  return { job: formattedJob, isLoading, refetch };
+  useEffect(() => {
+    refetch();
+  }, [refetch]);
+
+  return { job, isLoading, refetch };
 }
