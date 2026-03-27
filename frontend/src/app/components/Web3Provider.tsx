@@ -21,7 +21,7 @@ const flowEVMTestnet = {
 export const config = createConfig({
   chains: [flowEVMTestnet, mainnet, sepolia],
   transports: {
-    [flowEVMTestnet.id]: http(),
+    [flowEVMTestnet.id]: http("https://testnet.evm.nodes.onflow.org"),
     [mainnet.id]: http(),
     [sepolia.id]: http(),
   },
