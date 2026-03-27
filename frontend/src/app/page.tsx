@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { injected } from "wagmi/connectors";
 import Dashboard from "./components/Dashboard";
@@ -10,7 +11,12 @@ export default function Home() {
   const { connect } = useConnect();
   const { disconnect } = useDisconnect();
 
-  if (isConnected && address) {
+  // Defer wallet-dependent rendering until after hydration so server and
+  // client produce the same initial HTML (wagmi reconnects client-side only).
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
+  if (mounted && isConnected && address) {
     return (
       <div className="min-h-screen bg-zinc-50 dark:bg-black font-sans">
         <nav className="border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-8 py-4 flex justify-between items-center text-zinc-900 dark:text-zinc-50">
