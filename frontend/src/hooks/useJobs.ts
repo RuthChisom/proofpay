@@ -29,6 +29,9 @@ export function useJobs() {
 
   const fullRefetch = async () => {
     await refetchCount();
+    // Wait one tick for React to re-render with the updated jobCount so that
+    // useReadContracts rebuilds its contracts array before we refetch jobs.
+    await new Promise((r) => setTimeout(r, 50));
     await refetchJobs();
   };
 
