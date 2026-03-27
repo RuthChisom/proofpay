@@ -18,20 +18,27 @@ export function useJobs() {
     functionName: "jobCount",
   });
 
+  console.log("[useJobs] jobCount raw:", jobCount, "→ number:", Number(jobCount || 0));
+
+  const contractsArray = Array.from({ length: Number(jobCount || 0) }).map((_, i) => ({
+    address: ProofPayEscrow.address,
+    abi: ProofPayEscrow.abi,
+    functionName: "jobs",
+    args: [BigInt(i)],
+  }));
+  console.log("[useJobs] contracts array length:", contractsArray.length);
+
   const { data: jobs, isLoading, refetch: refetchJobs } = useReadContracts({
-    contracts: Array.from({ length: Number(jobCount || 0) }).map((_, i) => ({
-      address: ProofPayEscrow.address,
-      abi: ProofPayEscrow.abi,
-      functionName: "jobs",
-      args: [BigInt(i)],
-    })),
+    contracts: contractsArray,
   });
 
+  console.log("[useJobs] raw jobs data:", jobs);
+
   const fullRefetch = async () => {
+    console.log("[useJobs] fullRefetch: fetching count...");
     await refetchCount();
-    // Wait one tick for React to re-render with the updated jobCount so that
-    // useReadContracts rebuilds its contracts array before we refetch jobs.
     await new Promise((r) => setTimeout(r, 50));
+    console.log("[useJobs] fullRefetch: fetching jobs...");
     await refetchJobs();
   };
 
@@ -68,8 +75,27 @@ export function useJobs() {
   });
 
   const formattedJobs = jobs?.map((result, index) => {
+    console.log(`[useJobs] result[${index}] status:`, result.status, "result:", result.result);
     if (result.status === "success" && result.result) {
-      const [
+      const raw = result.result as any;
+      console.log(`[useJobs] result[${index}] raw type:`, Array.isArray(raw) ? "array" : typeof raw, "keys:", Object.keys(raw));
+
+      // viem may return a named-property object or an array — handle both
+      const client          = raw[0]  ?? raw.client;
+      const freelancer      = raw[1]  ?? raw.freelancer;
+      const totalAmount     = raw[2]  ?? raw.totalAmount;
+      const releasedAmount  = raw[3]  ?? raw.releasedAmount;
+      const createdAt       = raw[4]  ?? raw.createdAt;
+      const acceptedAt      = raw[5]  ?? raw.acceptedAt;
+      const proofSubmittedAt = raw[6] ?? raw.proofSubmittedAt;
+      const status          = raw[7]  ?? raw.status;
+      const proofHash       = raw[8]  ?? raw.proofHash;
+      const jobTitle        = raw[9]  ?? raw.jobTitle;
+
+      console.log(`[useJobs] job[${index}] parsed:`, { client, freelancer, totalAmount, status, jobTitle });
+
+      return {
+        id: BigInt(index),
         client,
         freelancer,
         totalAmount,
@@ -80,29 +106,12 @@ export function useJobs() {
         status,
         proofHash,
         jobTitle,
-      ] = result.result as [
-        string, string,
-        bigint, bigint,
-        bigint, bigint, bigint,
-        number,
-        string, string,
-      ];
-      return {
-        id: BigInt(index),
-        client,
-        freelancer,
-        totalAmount,
-        releasedAmount,
-        createdAt,
-        acceptedAt,
-        proofSubmittedAt,
-        status,     // uint8: use JobStatus constants to compare
-        proofHash,
-        jobTitle,
       };
     }
     return null;
   }).filter(Boolean) || [];
+
+  console.log("[useJobs] formattedJobs:", formattedJobs);
 
   return {
     jobs: formattedJobs,

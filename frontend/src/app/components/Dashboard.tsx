@@ -429,17 +429,23 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
 
   const isOverdue = (deadline: string) => !!deadline && new Date(deadline).getTime() < Date.now();
 
+  console.log("[Dashboard] userAddress:", userAddress, "activeTab:", activeTab);
+  console.log("[Dashboard] total jobs from hook:", jobs?.length, jobs);
+
   const filteredJobs = (jobs || []).filter((job) => {
     if (!job) return false;
-    const isOwner = activeTab === "client"
-      ? job.client.toLowerCase() === userAddress.toLowerCase()
-      : job.freelancer.toLowerCase() === userAddress.toLowerCase();
+    const clientMatch = job.client?.toLowerCase() === userAddress.toLowerCase();
+    const freelancerMatch = job.freelancer?.toLowerCase() === userAddress.toLowerCase();
+    const isOwner = activeTab === "client" ? clientMatch : freelancerMatch;
+    console.log(`[Dashboard] job[${job.id}] client:${job.client} freelancer:${job.freelancer} clientMatch:${clientMatch} freelancerMatch:${freelancerMatch} isOwner:${isOwner}`);
     if (activeTab === "freelancer") {
       const jobMeta = metadata[job.id.toString()];
       if (isOverdue(jobMeta?.deadline) && job.status === JobStatus.OPEN) return false;
     }
     return isOwner;
   });
+
+  console.log("[Dashboard] filteredJobs:", filteredJobs.length);
 
   return (
     <div className="w-full max-w-6xl p-6 space-y-8 relative">
