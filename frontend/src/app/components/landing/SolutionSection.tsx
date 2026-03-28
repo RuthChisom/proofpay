@@ -1,106 +1,215 @@
 "use client";
 
-import { Award, Lock, TrendingUp, Zap } from "lucide-react";
+import { Award, CheckCircle, Lock, TrendingUp, Zap } from "lucide-react";
 
-const FEATURES = [
+const SOLUTIONS = [
   {
-    icon: <Lock size={22} />,
-    title: "Funds Locked Before You Start",
-    body: "The client deposits into a smart-contract escrow before you accept. If the money isn't verifiably there, you simply don't start.",
+    icon: Lock,
+    accentColor: "#818cf8",
+    accentRgb: "129,132,248",
+    problem: "Ghost clients who never pay",
+    fix: "Funds Locked Before You Start",
+    body: "The client deposits the full payment into a non-custodial smart contract before you see the job. The money is there — provably, on-chain — before you write a single line or design a single pixel.",
+    proof: "No funds = no job. You never work on faith again.",
     tag: "Zero-risk start",
   },
   {
-    icon: <TrendingUp size={22} />,
-    title: "Milestone-Based Releases",
-    body: "Break any project into milestones. Get paid incrementally as you deliver — no more waiting for the final sign-off to see a cent.",
+    icon: TrendingUp,
+    accentColor: "#c084fc",
+    accentRgb: "192,132,252",
+    problem: "Waiting months for a final payout",
+    fix: "Milestone-by-Milestone Payments",
+    body: "Split any project into milestones and get paid as you go. Complete phase one, get paid for phase one. You're never more than one milestone away from money in your pocket.",
+    proof: "Cash flow that matches how you actually work.",
     tag: "Steady cash flow",
   },
   {
-    icon: <Zap size={22} />,
-    title: "Auto-Release Protection",
-    body: "Submit your proof of work. If the client goes silent, payment auto-releases after 48 hours. Your work is never held hostage.",
+    icon: Zap,
+    accentColor: "#38bdf8",
+    accentRgb: "56,189,248",
+    problem: "Client goes silent after delivery",
+    fix: "Auto-Release After 48 Hours",
+    body: "Submit your proof of work. The client has 48 hours to review. If they approve — instant payment. If they go silent — payment releases automatically. There is no scenario where silence steals your money.",
+    proof: "Silence can no longer be used as a weapon against you.",
     tag: "Always protected",
   },
   {
-    icon: <Award size={22} />,
-    title: "On-Chain Trust Score",
-    body: "Every completed job is recorded on-chain. Build a verifiable, portable reputation that no platform can take away from you.",
+    icon: Award,
+    accentColor: "#34d399",
+    accentRgb: "52,211,153",
+    problem: "No proof of track record across platforms",
+    fix: "On-Chain Trust Score",
+    body: "Every completed job, every milestone released, every client approval gets recorded on-chain permanently. Your reputation becomes a portable, unfakeable asset that follows you — not the platform.",
+    proof: "A track record no one can delete, dispute, or deny.",
     tag: "Portable reputation",
   },
 ];
 
 export default function SolutionSection() {
   return (
-    <section className="py-28 px-6 relative overflow-hidden">
+    <section className="py-32 px-6 relative overflow-hidden">
 
-      {/* Background glow */}
+      {/* Background — indigo glow to contrast the red problem section */}
       <div
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[500px] rounded-full pointer-events-none"
-        style={{ background: "radial-gradient(ellipse, rgba(99,102,241,0.07) 0%, transparent 70%)" }}
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background:
+            "radial-gradient(ellipse 70% 50% at 50% 50%, rgba(99,102,241,0.08) 0%, transparent 70%)",
+        }}
       />
 
       <div className="max-w-5xl mx-auto relative z-10">
 
-        {/* Heading */}
-        <div className="text-center mb-16">
+        {/* Section label */}
+        <div className="flex justify-center mb-10">
           <span
-            className="inline-block text-[10px] font-black tracking-widest uppercase px-3 py-1.5 rounded-full mb-5"
-            style={{ color: "#818cf8", background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.22)" }}
+            className="text-[10px] font-black tracking-widest uppercase px-3 py-1.5 rounded-full"
+            style={{
+              color: "#818cf8",
+              background: "rgba(99,102,241,0.1)",
+              border: "1px solid rgba(99,102,241,0.25)",
+            }}
           >
-            The Solution
+            The Fix
           </span>
+        </div>
+
+        {/* Heading */}
+        <div className="text-center mb-6">
           <h2
-            className="font-black tracking-tighter leading-none mb-4"
-            style={{ fontSize: "clamp(2.4rem, 6vw, 4rem)", color: "#f1f5f9" }}
+            className="font-black tracking-tighter leading-[0.95]"
+            style={{ fontSize: "clamp(2.8rem, 7vw, 5rem)", color: "#f1f5f9" }}
           >
-            <span className="pp-gradient-text">ProofPay</span> flips the rules.
+            <span className="pp-gradient-text">ProofPay</span> removes
+            <br />
+            every excuse not to pay.
           </h2>
-          <p className="text-xl max-w-xl mx-auto" style={{ color: "#64748b" }}>
-            Funds locked first. You work second. Payment guaranteed.
+        </div>
+
+        <div className="flex justify-center mb-20">
+          <p
+            className="text-center text-lg md:text-xl leading-relaxed max-w-2xl"
+            style={{ color: "#64748b" }}
+          >
+            Not another invoice tool. Not another contract template.
+            <br />
+            <span style={{ color: "#94a3b8" }}>
+              A protocol that makes non-payment technically impossible.
+            </span>
           </p>
         </div>
 
-        {/* Feature cards */}
-        <div className="grid md:grid-cols-2 gap-5">
-          {FEATURES.map((f) => (
-            <div
-              key={f.title}
-              className="flex gap-5 p-6 rounded-3xl transition-transform duration-200 hover:scale-[1.015]"
-              style={{
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid rgba(255,255,255,0.07)",
-                backdropFilter: "blur(12px)",
-              }}
-            >
-              {/* Icon */}
+        {/* Solution cards — two-column grid */}
+        <div className="grid md:grid-cols-2 gap-6">
+          {SOLUTIONS.map((s) => {
+            const Icon = s.icon;
+            return (
               <div
-                className="flex-shrink-0 w-11 h-11 rounded-2xl flex items-center justify-center"
+                key={s.fix}
+                className="relative flex flex-col p-7 rounded-3xl overflow-hidden transition-transform duration-200 hover:scale-[1.01]"
                 style={{
-                  background: "linear-gradient(135deg, rgba(99,102,241,0.25), rgba(139,92,246,0.25))",
-                  border: "1px solid rgba(99,102,241,0.3)",
-                  color: "#a5b4fc",
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px solid rgba(255,255,255,0.07)",
+                  backdropFilter: "blur(16px)",
                 }}
               >
-                {f.icon}
-              </div>
+                {/* Top row: icon + fix tag */}
+                <div className="flex items-start justify-between mb-5">
+                  <div
+                    className="w-12 h-12 rounded-2xl flex items-center justify-center"
+                    style={{
+                      background: `rgba(${s.accentRgb},0.13)`,
+                      border: `1px solid rgba(${s.accentRgb},0.3)`,
+                      color: s.accentColor,
+                      boxShadow: `0 0 20px rgba(${s.accentRgb},0.15)`,
+                    }}
+                  >
+                    <Icon size={22} />
+                  </div>
 
-              {/* Text */}
-              <div>
-                <h3 className="text-base font-bold text-white mb-1.5">{f.title}</h3>
-                <p className="text-sm leading-relaxed mb-3" style={{ color: "#64748b" }}>{f.body}</p>
-                <span
-                  className="inline-block text-xs font-bold px-2.5 py-1 rounded-lg"
+                  <span
+                    className="text-xs font-bold px-2.5 py-1 rounded-lg"
+                    style={{
+                      background: `rgba(${s.accentRgb},0.1)`,
+                      border: `1px solid rgba(${s.accentRgb},0.25)`,
+                      color: s.accentColor,
+                    }}
+                  >
+                    {s.tag}
+                  </span>
+                </div>
+
+                {/* Solves line */}
+                <div
+                  className="flex items-center gap-2 mb-3 text-xs font-semibold"
+                  style={{ color: "#475569" }}
+                >
+                  <span
+                    className="w-4 h-px"
+                    style={{ background: "rgba(255,255,255,0.15)" }}
+                  />
+                  Fixes: {s.problem}
+                </div>
+
+                {/* Fix title */}
+                <h3
+                  className="text-xl font-black mb-3"
+                  style={{ color: "#f1f5f9" }}
+                >
+                  {s.fix}
+                </h3>
+
+                {/* Body */}
+                <p
+                  className="text-sm leading-relaxed flex-1 mb-5"
+                  style={{ color: "#64748b" }}
+                >
+                  {s.body}
+                </p>
+
+                {/* Proof line — the emotional punch */}
+                <div
+                  className="flex items-start gap-2.5 p-4 rounded-2xl"
                   style={{
-                    background: "rgba(16,185,129,0.1)",
-                    border: "1px solid rgba(16,185,129,0.22)",
-                    color: "#34d399",
+                    background: `rgba(${s.accentRgb},0.07)`,
+                    border: `1px solid rgba(${s.accentRgb},0.15)`,
                   }}
                 >
-                  {f.tag}
-                </span>
+                  <CheckCircle
+                    size={15}
+                    className="flex-shrink-0 mt-0.5"
+                    style={{ color: s.accentColor }}
+                  />
+                  <p
+                    className="text-xs font-semibold leading-relaxed"
+                    style={{ color: s.accentColor }}
+                  >
+                    {s.proof}
+                  </p>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
+        </div>
+
+        {/* Bottom anchor — transitions into FeaturesSection */}
+        <div
+          className="mt-20 flex flex-col items-center gap-3 text-center"
+        >
+          <div
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold"
+            style={{
+              background: "rgba(16,185,129,0.08)",
+              border: "1px solid rgba(16,185,129,0.2)",
+              color: "#34d399",
+            }}
+          >
+            <CheckCircle size={15} />
+            Every rule enforced by code. Not promises.
+          </div>
+          <p className="text-sm" style={{ color: "#334155" }}>
+            No middlemen. No arbitration. No waiting.
+          </p>
         </div>
       </div>
     </section>
