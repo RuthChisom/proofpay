@@ -71,12 +71,12 @@ Client                        Smart Contract               Freelancer
 │                                                          │
 │  ┌─────────────────────────────────────────────────┐   │
 │  │  ProofPayEscrow.sol                              │   │
-│  │  0x7D674fDE6F3c7ba7583abeCAa5Ce43F15F618B8f    │   │
+│  │  0x32fb4173bb3f8f0dfbcd39c7a5ba8b0daf13ad24    │   │
 │  │  ─ escrow, payment release, trust scores        │   │
 │  └─────────────────────────────────────────────────┘   │
 │  ┌─────────────────────────────────────────────────┐   │
 │  │  ProofPayRegistry.sol                            │   │
-│  │  0x8E447A61AA900A586124B823248a8C705b252F3a    │   │
+│  │  0xa57b95e94d45bf4d8a056a2b6ce71989d9739d6a    │   │
 │  │  ─ ratings, reputation                          │   │
 │  └─────────────────────────────────────────────────┘   │
 └────────────────────────────────────────────────────────┘
@@ -147,7 +147,7 @@ event JobCompleted(uint256 indexed jobId);
 
 **Deployed address (Flow EVM Testnet)**
 ```
-0x7D674fDE6F3c7ba7583abeCAa5Ce43F15F618B8f
+0x32fb4173bb3f8f0dfbcd39c7a5ba8b0daf13ad24
 ```
 
 ---
@@ -167,7 +167,7 @@ On-chain freelancer reputation. Separate from the escrow contract so ratings can
 
 **Deployed address (Flow EVM Testnet)**
 ```
-0x8E447A61AA900A586124B823248a8C705b252F3a
+0xa57b95e94d45bf4d8a056a2b6ce71989d9739d6a
 ```
 
 ---
@@ -277,7 +277,7 @@ The listener will log received proofs and AI verdicts to stdout. It is optional 
 
 ```env
 # Address of the deployed ProofPayEscrow contract
-ESCROW_ADDRESS=0x7D674fDE6F3c7ba7583abeCAa5Ce43F15F618B8f
+ESCROW_ADDRESS=0x32fb4173bb3f8f0dfbcd39c7a5ba8b0daf13ad24
 
 # Flow EVM Testnet RPC endpoint
 RPC_URL=https://testnet.evm.nodes.onflow.org
@@ -486,5 +486,5 @@ All contracts are deployed on **Flow EVM Testnet**.
 | RPC URL | `https://testnet.evm.nodes.onflow.org` |
 | Block Explorer | `https://evm-testnet.flowscan.io` |
 | Faucet | `https://testnet-faucet.onflow.org` |
-| ProofPayEscrow | `0x7D674fDE6F3c7ba7583abeCAa5Ce43F15F618B8f` |
-| ProofPayRegistry | `0x8E447A61AA900A586124B823248a8C705b252F3a` |
+| ProofPayEscrow | `0x32fb4173bb3f8f0dfbcd39c7a5ba8b0daf13ad24` |
+| ProofPayRegistry | `0xa57b95e94d45bf4d8a056a2b6ce71989d9739d6a` |

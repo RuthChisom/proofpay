@@ -8,7 +8,7 @@ const ESCROW_ABI = [
   "function jobs(uint256) external view returns (address client, address freelancer, uint256 totalAmount, uint256 releasedAmount, uint256 createdAt, uint256 acceptedAt, uint256 proofSubmittedAt, uint8 status, string proofHash, string jobTitle)"
 ];
 
-const ESCROW_ADDRESS = "0x7D674fDE6F3c7ba7583abeCAa5Ce43F15F618B8f";
+const ESCROW_ADDRESS = "0x32fb4173bb3f8f0dfbcd39c7a5ba8b0daf13ad24";
 
 /**
  * Encrypts a file with Lit Protocol for the client, uploads to Storacha, 
