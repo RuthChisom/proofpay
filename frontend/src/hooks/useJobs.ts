@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useWatchContractEvent } from "wagmi";
-import { createPublicClient, custom, http } from "viem";
-import { ProofPayEscrow } from "../lib/contracts";
+import { createPublicClient, http } from "viem";
+import { CONFIG, ProofPayEscrow } from "../lib/contracts";
 
 // Matches the on-chain Status enum: OPEN=0, ACCEPTED=1, PROOF_SUBMITTED=2, COMPLETED=3
 export const JobStatus = {
@@ -13,20 +13,29 @@ export const JobStatus = {
   COMPLETED: 3,
 } as const;
 
-// Build a public client at call time so window.ethereum is available.
-// Uses MetaMask's injected provider to bypass CORS on the Flow EVM RPC.
 function makeClient() {
-  if (typeof window !== "undefined" && (window as any).ethereum) {
-    return createPublicClient({
-      transport: custom((window as any).ethereum),
-    });
-  }
   return createPublicClient({
-    transport: http("https://testnet.evm.nodes.onflow.org"),
+    transport: http(CONFIG.FLOW_EVM_RPC),
   });
 }
 
-function parseJob(raw: any, index: number) {
+type RawJob = readonly unknown[] & Record<string, unknown>;
+
+export type Job = {
+  id: bigint;
+  client?: string;
+  freelancer?: string;
+  totalAmount?: bigint;
+  releasedAmount?: bigint;
+  createdAt?: bigint;
+  acceptedAt?: bigint;
+  proofSubmittedAt?: bigint;
+  status?: number | bigint;
+  proofHash?: string;
+  jobTitle?: string;
+};
+
+function parseJob(raw: RawJob, index: number): Job {
   // viem may return an array-like tuple or a named-property object
   const get = (i: number, name: string) => {
     const byIndex = raw[i];
@@ -53,7 +62,7 @@ function parseJob(raw: any, index: number) {
 }
 
 export function useJobs() {
-  const [formattedJobs, setFormattedJobs] = useState<any[]>([]);
+  const [formattedJobs, setFormattedJobs] = useState<Job[]>([]);
   const [isLoading, setIsLoading]         = useState(false);
   const [jobCount, setJobCount]           = useState<bigint>(0n);
 
@@ -91,14 +100,14 @@ export function useJobs() {
             args: [BigInt(i)],
           }).then((raw) => {
             console.log(`[useJobs] raw result[${i}]:`, raw);
-            return parseJob(raw, i);
+            return parseJob(raw as RawJob, i);
           }).catch((err) => {
             console.error(`[useJobs] error reading job[${i}]:`, err);
             return null;
           })
         )
       );
-      const valid = results.filter(Boolean) as any[];
+      const valid = results.filter((job): job is Job => job !== null);
       console.log("[useJobs] all jobs:", valid);
       setFormattedJobs(valid);
     } finally {
@@ -152,7 +161,7 @@ export function useJobs() {
 }
 
 export function useJobById(jobId: bigint) {
-  const [job, setJob]           = useState<any>(null);
+  const [job, setJob] = useState<Job | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const refetch = useCallback(async () => {
@@ -165,7 +174,7 @@ export function useJobById(jobId: bigint) {
         functionName: "jobs",
         args: [jobId],
       });
-      setJob(parseJob(raw, Number(jobId)));
+      setJob(parseJob(raw as RawJob, Number(jobId)));
     } catch (err) {
       console.error("[useJobById] error:", err);
     } finally {
