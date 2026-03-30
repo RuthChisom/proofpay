@@ -6,7 +6,7 @@ import { PlusCircle, CheckCircle, UploadCloud, Briefcase, Zap, Loader2, Info, Al
 import { useJobs, JobStatus } from "../../hooks/useJobs";
 import { useProofPayEscrow } from "../../hooks/useProofPayEscrow";
 import { ProofPayEscrow } from "../../lib/contracts";
-import { formatEther, parseEther } from "viem";
+import { formatEther, isAddress } from "viem";
 
 const FLOW_USD_RATE = 5; // 1 FLOW = $5 for demo
 
@@ -338,20 +338,44 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
       showToast("Please fill in all required fields.", "error");
       return;
     }
-    const amountFLOW = (parseFloat(formData.amountUSD) / FLOW_USD_RATE).toString();
+    const trimmedTitle = formData.title.trim();
+    const trimmedFreelancer = formData.freelancer.trim();
+    const amountUSD = Number(formData.amountUSD);
+
+    if (!trimmedTitle) {
+      showToast("Job title cannot be empty.", "error");
+      return;
+    }
+
+    if (!isAddress(trimmedFreelancer)) {
+      showToast("Enter a valid freelancer wallet address.", "error");
+      return;
+    }
+
+    if (!Number.isFinite(amountUSD) || amountUSD <= 0) {
+      showToast("Enter a USD amount greater than 0.", "error");
+      return;
+    }
+
+    const amountFLOW = (amountUSD / FLOW_USD_RATE).toFixed(18).replace(/\.?0+$/, "");
+
+    if (!amountFLOW || Number(amountFLOW) <= 0) {
+      showToast("The FLOW amount resolves to 0. Increase the payment amount.", "error");
+      return;
+    }
+
     try {
-      // Fix: pass jobTitle as second argument
-      await createJob(formData.freelancer, formData.title, amountFLOW);
+      await createJob(trimmedFreelancer, trimmedTitle, amountFLOW);
 
       const nextId = jobCount.toString();
       const updated = {
         ...metadata,
         [nextId]: {
-          title: formData.title,
+          title: trimmedTitle,
           description: formData.description,
           deliverables: formData.deliverables,
           deadline: formData.deadline,
-          amountUSD: formData.amountUSD,
+          amountUSD: amountUSD.toString(),
           fileName: formData.fileName,
           createdAt: Date.now(),
         },
