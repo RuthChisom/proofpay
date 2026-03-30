@@ -25,7 +25,7 @@ export function useJobs() {
     await refetchJobs();
   };
 
-  const formattedJobs = jobs?.map((result, index) => {
+  const formattedJobs = (jobs?.map((result, index) => {
     if (result.status === "success" && result.result) {
       const [client, freelancer, payment, proofHash, accepted, completed] = result.result as [string, string, bigint, string, boolean, boolean];
       return {
@@ -39,7 +39,7 @@ export function useJobs() {
       };
     }
     return null;
-  }).filter(Boolean) || [];
+  }) || []).filter((job): job is NonNullable<typeof job> => job !== null);
 
   return {
     jobs: formattedJobs,

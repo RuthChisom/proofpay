@@ -185,22 +185,21 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
     return false;
   };
 
-  const filteredJobs = jobs ? jobs.filter(job => {
+  const filteredJobs = (jobs || []).filter((job) => {
     if (!job) return false;
-    const isOwner = activeTab === "client" 
+    const isOwner = activeTab === "client"
       ? job.client.toLowerCase() === userAddress.toLowerCase()
       : job.freelancer.toLowerCase() === userAddress.toLowerCase();
-    
+
     if (activeTab === "freelancer") {
       const jobMeta = metadata[job.id.toString()];
       const isJobOverdue = isOverdue(jobMeta?.deadline);
       // Freelancer shouldn't see overdue jobs unless they've already accepted it
       if (isJobOverdue && !job.accepted && !job.completed) return false;
     }
-    
-    return isOwner;
-  }) : [];
 
+    return isOwner;
+  });
   return (
     <div className="w-full max-w-6xl p-6 space-y-8 relative">
       {toast && (
