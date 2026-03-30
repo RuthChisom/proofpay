@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useAccount, useChainId, useConnect, useDisconnect } from "wagmi";
+import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { injected } from "wagmi/connectors";
 import Dashboard from "./components/Dashboard";
 import LandingPage from "./components/landing/LandingPage";
@@ -11,8 +11,7 @@ const FLOW_EVM_TESTNET_CHAIN_ID = 545;
 const FLOW_EVM_TESTNET_CHAIN_ID_HEX = "0x221"; // 545 in hex
 
 export default function Home() {
-  const { address, isConnected } = useAccount();
-  const chainId = useChainId();
+  const { address, isConnected, chain } = useAccount();
   const { connect } = useConnect();
   const { disconnect } = useDisconnect();
   const [isSwitchingChain, setIsSwitchingChain] = useState(false);
@@ -60,7 +59,10 @@ export default function Home() {
   };
 
   if (mounted && isConnected && address) {
-    const isWrongNetwork = chainId !== FLOW_EVM_TESTNET_CHAIN_ID;
+    // Use chain from useAccount() — this reflects the actual connected wallet
+    // chain, not wagmi's config default (which would be 545 on initial render
+    // since flowEVMTestnet is first in the chains array).
+    const isWrongNetwork = chain?.id !== FLOW_EVM_TESTNET_CHAIN_ID;
 
     return (
       <div className="min-h-screen bg-zinc-50 dark:bg-black font-sans">
@@ -91,7 +93,7 @@ export default function Home() {
               <div className="rounded-3xl border border-amber-200 bg-amber-50 p-8 text-amber-950 shadow-sm">
                 <h1 className="text-2xl font-black">Switch To Flow EVM Testnet</h1>
                 <p className="mt-3 text-sm leading-6 text-amber-900">
-                  Your wallet is currently connected to chain ID {chainId}. ProofPay creates jobs on Flow EVM Testnet
+                  Your wallet is currently connected to chain ID {chain?.id ?? "unknown"}. ProofPay creates jobs on Flow EVM Testnet
                   only, so your wallet may show the native token as ETH or mark the transfer as risky until you switch.
                 </p>
                 <button

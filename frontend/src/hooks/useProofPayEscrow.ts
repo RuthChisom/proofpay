@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { usePublicClient, useWaitForTransactionReceipt, useWalletClient } from "wagmi";
+import { useAccount, usePublicClient, useWaitForTransactionReceipt, useWalletClient } from "wagmi";
 import { CONFIG, ProofPayEscrow } from "../lib/contracts";
 import { BaseError, parseEther } from "viem";
 
@@ -34,8 +34,10 @@ function normalizeContractError(error: unknown) {
 }
 
 export function useProofPayEscrow() {
+  const { chain } = useAccount();
   const publicClient = usePublicClient({ chainId: CONFIG.CHAIN_ID });
-  const { data: walletClient } = useWalletClient();
+  // Pin to chain 545 so wagmi prepares the wallet client for Flow EVM specifically.
+  const { data: walletClient } = useWalletClient({ chainId: CONFIG.CHAIN_ID });
   const [hash, setHash] = useState<`0x${string}` | undefined>(undefined);
   const [error, setError] = useState<Error | null>(null);
   const [isPending, setIsPending] = useState(false);
@@ -54,6 +56,10 @@ export function useProofPayEscrow() {
   }) => {
     if (!publicClient || !walletClient?.account) {
       throw new Error("Connect a wallet on Flow EVM Testnet and try again.");
+    }
+
+    if (chain?.id !== CONFIG.CHAIN_ID) {
+      throw new Error("Please switch to Flow EVM Testnet to send transactions.");
     }
 
     setIsPending(true);
@@ -84,7 +90,7 @@ export function useProofPayEscrow() {
     } finally {
       setIsPending(false);
     }
-  }, [publicClient, walletClient]);
+  }, [publicClient, walletClient, chain]);
 
   const createJob = (freelancer: string, jobTitle: string, amount: string) =>
     writeWithEstimatedGas({

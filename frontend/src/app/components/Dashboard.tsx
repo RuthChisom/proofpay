@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useReadContract } from "wagmi";
+import { useAccount, useReadContract } from "wagmi";
 import { PlusCircle, CheckCircle, UploadCloud, Briefcase, Zap, Loader2, Info, AlertCircle, Clock, Edit, XCircle, FileText, Star } from "lucide-react";
 import { useJobs, JobStatus } from "../../hooks/useJobs";
 import { useProofPayEscrow } from "../../hooks/useProofPayEscrow";
@@ -282,7 +282,33 @@ function JobCard({
 }
 
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
+const FLOW_CHAIN_ID = 545;
+const FLOW_CHAIN_ID_HEX = "0x221";
+
 export default function Dashboard({ userAddress }: { userAddress: string }) {
+  const { chain } = useAccount();
+  const [isSwitchingChain, setIsSwitchingChain] = useState(false);
+
+  const handleSwitchToFlow = async () => {
+    const eth = (window as any).ethereum;
+    if (!eth) return;
+    setIsSwitchingChain(true);
+    try {
+      await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: FLOW_CHAIN_ID_HEX }] });
+    } catch (err: any) {
+      if (err?.code === 4902 || err?.data?.originalError?.code === 4902) {
+        try {
+          await eth.request({
+            method: "wallet_addEthereumChain",
+            params: [{ chainId: FLOW_CHAIN_ID_HEX, chainName: "Flow EVM Testnet",
+              nativeCurrency: { name: "FLOW", symbol: "FLOW", decimals: 18 },
+              rpcUrls: ["https://testnet.evm.nodes.onflow.org"],
+              blockExplorerUrls: ["https://evm-testnet.flowscan.io"] }],
+          });
+        } catch (addErr) { console.error("Failed to add Flow EVM Testnet:", addErr); }
+      } else { console.error("Failed to switch network:", err); }
+    } finally { setIsSwitchingChain(false); }
+  };
 
   const [formData, setFormData] = useState({
     freelancer: "",
@@ -470,6 +496,28 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
   });
 
   console.log("[Dashboard] filteredJobs:", filteredJobs.length);
+
+  // Guard: show switch prompt if wallet is on the wrong chain while Dashboard
+  // is mounted (e.g. user manually switches network mid-session).
+  if (chain?.id !== FLOW_CHAIN_ID) {
+    return (
+      <div className="w-full max-w-2xl px-6">
+        <div className="rounded-3xl border border-amber-200 bg-amber-50 p-8 text-amber-950 shadow-sm">
+          <h1 className="text-2xl font-black">Switch To Flow EVM Testnet</h1>
+          <p className="mt-3 text-sm leading-6 text-amber-900">
+            Your wallet is on chain {chain?.id ?? "unknown"}. ProofPay requires Flow EVM Testnet (chain 545) to send transactions.
+          </p>
+          <button
+            onClick={handleSwitchToFlow}
+            disabled={isSwitchingChain}
+            className="mt-6 rounded-2xl bg-amber-600 px-6 py-3 text-sm font-bold text-white transition-colors hover:bg-amber-700 disabled:opacity-50"
+          >
+            {isSwitchingChain ? "Switching..." : "Switch to Flow EVM Testnet"}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full max-w-6xl p-6 space-y-8 relative">
