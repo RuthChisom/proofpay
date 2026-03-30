@@ -210,7 +210,7 @@ function JobCard({
             </div>
             <div>
               <span className="text-[10px] font-bold text-zinc-400 uppercase block">Remaining</span>
-              <span className="text-sm font-black text-indigo-600">{formatEther(job.totalAmount - job.releasedAmount)} FLOW</span>
+              <span className="text-sm font-black text-indigo-600">{formatEther(((job.totalAmount ?? 0n) - (job.releasedAmount ?? 0n)) as unknown as bigint)} FLOW</span>
             </div>
           </div>
           <div className="flex gap-3">

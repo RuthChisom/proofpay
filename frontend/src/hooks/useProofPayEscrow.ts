@@ -8,11 +8,11 @@ import { BaseError, parseEther } from "viem";
 function normalizeContractError(error: unknown) {
   if (error instanceof BaseError) {
     const revertReason =
-      error.walk((err) => err instanceof BaseError && /reverted|revert|execution reverted/i.test(err.shortMessage))
+      (error.walk((err) => err instanceof BaseError && /reverted|revert|execution reverted/i.test((err as BaseError).shortMessage)) as BaseError | null)
         ?.shortMessage;
 
     const knownReason =
-      error.walk((err) => err instanceof BaseError && /EmptyJobTitle|InvalidFreelancer|NoPaymentProvided|NotClient|NotFreelancer|JobNotOpen|JobNotAccepted|ProofNotSubmitted|TooEarlyForClaim|AmountExceedsEscrow/i.test(err.shortMessage))
+      (error.walk((err) => err instanceof BaseError && /EmptyJobTitle|InvalidFreelancer|NoPaymentProvided|NotClient|NotFreelancer|JobNotOpen|JobNotAccepted|ProofNotSubmitted|TooEarlyForClaim|AmountExceedsEscrow/i.test((err as BaseError).shortMessage)) as BaseError | null)
         ?.shortMessage;
 
     const message = knownReason || revertReason || error.shortMessage || error.message;

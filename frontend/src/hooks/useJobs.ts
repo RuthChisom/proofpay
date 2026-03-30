@@ -58,7 +58,7 @@ function parseJob(raw: RawJob, index: number): Job {
   };
 
   console.log(`[useJobs] job[${index}] parsed:`, parsed);
-  return parsed;
+  return parsed as Job;
 }
 
 export function useJobs() {
