@@ -1,25 +1,63 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useAccount, useChainId, useConnect, useDisconnect, useSwitchChain } from "wagmi";
+import { useAccount, useChainId, useConnect, useDisconnect } from "wagmi";
 import { injected } from "wagmi/connectors";
 import Dashboard from "./components/Dashboard";
 import LandingPage from "./components/landing/LandingPage";
 import { ShieldCheck, LogOut } from "lucide-react";
 
 const FLOW_EVM_TESTNET_CHAIN_ID = 545;
+const FLOW_EVM_TESTNET_CHAIN_ID_HEX = "0x221"; // 545 in hex
 
 export default function Home() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const { connect } = useConnect();
   const { disconnect } = useDisconnect();
-  const { switchChain, isPending: isSwitchingChain } = useSwitchChain();
+  const [isSwitchingChain, setIsSwitchingChain] = useState(false);
 
   // Defer wallet-dependent rendering until after hydration so server and
   // client produce the same initial HTML (wagmi reconnects client-side only).
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
+
+  // Robust chain switch: tries wallet_switchEthereumChain first; if the chain
+  // isn't in the wallet yet (error 4902) it falls back to wallet_addEthereumChain
+  // which adds the network and prompts the user to switch in one step.
+  const handleSwitchToFlow = async () => {
+    const eth = (window as any).ethereum;
+    if (!eth) return;
+    setIsSwitchingChain(true);
+    try {
+      await eth.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: FLOW_EVM_TESTNET_CHAIN_ID_HEX }],
+      });
+    } catch (err: any) {
+      // 4902 = chain not yet added to the wallet
+      if (err?.code === 4902 || err?.data?.originalError?.code === 4902) {
+        try {
+          await eth.request({
+            method: "wallet_addEthereumChain",
+            params: [{
+              chainId: FLOW_EVM_TESTNET_CHAIN_ID_HEX,
+              chainName: "Flow EVM Testnet",
+              nativeCurrency: { name: "FLOW", symbol: "FLOW", decimals: 18 },
+              rpcUrls: ["https://testnet.evm.nodes.onflow.org"],
+              blockExplorerUrls: ["https://evm-testnet.flowscan.io"],
+            }],
+          });
+        } catch (addErr) {
+          console.error("Failed to add Flow EVM Testnet:", addErr);
+        }
+      } else {
+        console.error("Failed to switch network:", err);
+      }
+    } finally {
+      setIsSwitchingChain(false);
+    }
+  };
 
   if (mounted && isConnected && address) {
     const isWrongNetwork = chainId !== FLOW_EVM_TESTNET_CHAIN_ID;
@@ -57,7 +95,7 @@ export default function Home() {
                   only, so your wallet may show the native token as ETH or mark the transfer as risky until you switch.
                 </p>
                 <button
-                  onClick={() => switchChain({ chainId: FLOW_EVM_TESTNET_CHAIN_ID })}
+                  onClick={handleSwitchToFlow}
                   disabled={isSwitchingChain}
                   className="mt-6 rounded-2xl bg-amber-600 px-6 py-3 text-sm font-bold text-white transition-colors hover:bg-amber-700 disabled:opacity-50"
                 >
