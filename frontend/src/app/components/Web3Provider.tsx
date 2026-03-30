@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { WagmiProvider, createConfig, http } from "wagmi";
 import { mainnet, sepolia } from "wagmi/chains";
+import { custom, fallback } from "viem";
 
 // Define Flow EVM Testnet chain
 const flowEVMTestnet = {
@@ -18,10 +19,20 @@ const flowEVMTestnet = {
   },
 } as const;
 
+// Use MetaMask's injected provider for Flow EVM reads to bypass CORS.
+// Falls back to the HTTP RPC when no injected provider is available (SSR / non-browser).
+const flowTransport =
+  typeof window !== "undefined" && (window as any).ethereum
+    ? fallback([
+        custom((window as any).ethereum),
+        http("https://testnet.evm.nodes.onflow.org"),
+      ])
+    : http("https://testnet.evm.nodes.onflow.org");
+
 export const config = createConfig({
   chains: [flowEVMTestnet, mainnet, sepolia],
   transports: {
-    [flowEVMTestnet.id]: http(),
+    [flowEVMTestnet.id]: flowTransport,
     [mainnet.id]: http(),
     [sepolia.id]: http(),
   },

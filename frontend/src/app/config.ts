@@ -1,6 +1,6 @@
 export const CONFIG = {
-  ESCROW_ADDRESS: "0xdFB2Dcb29dfDBD31b78f7f2f97046Ab1DAcecDA7", 
-  REGISTRY_ADDRESS: "0xA9Eaf8E76966b60e9aB63C74a42605E84adF9EcE", 
+  ESCROW_ADDRESS: "0x32fb4173bb3f8f0dfbcd39c7a5ba8b0daf13ad24",
+  REGISTRY_ADDRESS: "0xa57b95e94d45bf4d8a056a2b6ce71989d9739d6a",
   FLOW_EVM_RPC: "https://testnet.evm.nodes.onflow.org",
   FLOW_NETWORK: "testnet",
   EXPLORER_URL: "https://evm-testnet.flowscan.io",

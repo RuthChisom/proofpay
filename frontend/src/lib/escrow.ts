@@ -5,10 +5,10 @@ import { encryptForClient } from './lit';
 // ProofPayEscrow ABI snippet for submitProof and jobs
 const ESCROW_ABI = [
   "function submitProof(uint256 jobId, string calldata ipfsHash) external",
-  "function jobs(uint256) external view returns (address client, address freelancer, uint256 payment, string proofHash, bool accepted, bool completed)"
+  "function jobs(uint256) external view returns (address client, address freelancer, uint256 totalAmount, uint256 releasedAmount, uint256 createdAt, uint256 acceptedAt, uint256 proofSubmittedAt, uint8 status, string proofHash, string jobTitle)"
 ];
 
-const ESCROW_ADDRESS = "0x0000000000000000000000000000000000000000"; // Replace with actual deployed address
+const ESCROW_ADDRESS = "0x32fb4173bb3f8f0dfbcd39c7a5ba8b0daf13ad24";
 
 /**
  * Encrypts a file with Lit Protocol for the client, uploads to Storacha, 
