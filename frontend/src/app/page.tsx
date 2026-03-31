@@ -1,20 +1,36 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useAccount, useConnect, useDisconnect } from "wagmi";
-import { injected } from "wagmi/connectors";
+import { useAccount, useConnect, useConnectors, useDisconnect } from "wagmi";
 import Dashboard from "./components/Dashboard";
 import LandingPage from "./components/landing/LandingPage";
-import { ShieldCheck, LogOut } from "lucide-react";
+import { ShieldCheck, LogOut, X, Mail, Wallet } from "lucide-react";
 
 const FLOW_EVM_TESTNET_CHAIN_ID = 545;
 const FLOW_EVM_TESTNET_CHAIN_ID_HEX = "0x221"; // 545 in hex
 
+// "flow-fcl" connector → walletless section (email / social via FCL Discovery + Blocto)
+// "injected"  connector → crypto-wallet section (MetaMask / browser extension)
+const WALLETLESS_CONNECTOR_ID = "flow-fcl";
+
+const CONNECTOR_LABELS: Record<string, { label: string; description: string }> = {
+  injected: {
+    label: "MetaMask / Browser Extension",
+    description: "Connect an existing EVM wallet",
+  },
+  "flow-fcl": {
+    label: "Continue with Email or Social",
+    description: "Email · Google · Apple — no crypto wallet required",
+  },
+};
+
 export default function Home() {
-  const { address, isConnected, chain } = useAccount();
+  const { address, isConnected, chain, connector } = useAccount();
   const { connect } = useConnect();
+  const connectors = useConnectors();
   const { disconnect } = useDisconnect();
   const [isSwitchingChain, setIsSwitchingChain] = useState(false);
+  const [showWalletModal, setShowWalletModal] = useState(false);
 
   // Defer wallet-dependent rendering until after hydration so server and
   // client produce the same initial HTML (wagmi reconnects client-side only).
@@ -25,11 +41,13 @@ export default function Home() {
   // isn't in the wallet yet (error 4902) it falls back to wallet_addEthereumChain
   // which adds the network and prompts the user to switch in one step.
   const handleSwitchToFlow = async () => {
-    const eth = (window as any).ethereum;
+    // Use the active connector's provider so the chain change event reaches
+    // wagmi regardless of whether the user connected via MetaMask or FCL.
+    const eth = connector ? await connector.getProvider() : (window as any).ethereum;
     if (!eth) return;
     setIsSwitchingChain(true);
     try {
-      await eth.request({
+      await (eth as any).request({
         method: "wallet_switchEthereumChain",
         params: [{ chainId: FLOW_EVM_TESTNET_CHAIN_ID_HEX }],
       });
@@ -37,7 +55,7 @@ export default function Home() {
       // 4902 = chain not yet added to the wallet
       if (err?.code === 4902 || err?.data?.originalError?.code === 4902) {
         try {
-          await eth.request({
+          await (eth as any).request({
             method: "wallet_addEthereumChain",
             params: [{
               chainId: FLOW_EVM_TESTNET_CHAIN_ID_HEX,
@@ -77,7 +95,7 @@ export default function Home() {
             <div className="px-3 py-1 bg-zinc-100 dark:bg-zinc-800 rounded-full text-xs font-mono text-zinc-500">
               {address.slice(0, 6)}...{address.slice(-4)}
             </div>
-            <button 
+            <button
               onClick={() => disconnect()}
               className="flex items-center gap-2 text-sm font-medium text-zinc-500 hover:text-red-600 transition-colors"
             >
@@ -86,7 +104,7 @@ export default function Home() {
             </button>
           </div>
         </nav>
-        
+
         <main className="flex justify-center py-12">
           {isWrongNetwork ? (
             <div className="w-full max-w-2xl px-6">
@@ -114,6 +132,155 @@ export default function Home() {
   }
 
   return (
-    <LandingPage onConnect={() => connect({ connector: injected() })} />
+    <>
+      <LandingPage onConnect={() => setShowWalletModal(true)} />
+
+      {/* Wallet chooser modal */}
+      {showWalletModal && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)" }}
+          onClick={() => setShowWalletModal(false)}
+        >
+          <div
+            className="relative w-full max-w-sm rounded-2xl p-6"
+            style={{
+              background: "#0e0e14",
+              border: "1px solid rgba(255,255,255,0.1)",
+              boxShadow: "0 24px 80px rgba(0,0,0,0.6)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-2">
+                <div
+                  className="w-7 h-7 rounded-lg flex items-center justify-center"
+                  style={{ background: "linear-gradient(135deg, #6366f1, #8b5cf6)" }}
+                >
+                  <ShieldCheck size={14} className="text-white" />
+                </div>
+                <span className="text-white font-bold text-base">Sign in to ProofPay</span>
+              </div>
+              <button
+                onClick={() => setShowWalletModal(false)}
+                className="text-zinc-500 hover:text-white transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* ── Section 1: Walletless (email / social) ── */}
+            <p className="text-zinc-500 text-xs font-semibold uppercase tracking-wider mb-2">
+              No wallet needed
+            </p>
+            {connectors
+              .filter((c) => c.id === WALLETLESS_CONNECTOR_ID)
+              .map((connector) => {
+                const meta = CONNECTOR_LABELS[connector.id] ?? {
+                  label: connector.name,
+                  description: "",
+                };
+                return (
+                  <button
+                    key={connector.uid}
+                    onClick={() => {
+                      connect({ connector });
+                      setShowWalletModal(false);
+                    }}
+                    className="flex items-center gap-4 w-full rounded-xl p-4 text-left transition-all duration-150 hover:scale-[1.02] active:scale-[0.98]"
+                    style={{
+                      background: "rgba(99,102,241,0.12)",
+                      border: "1px solid rgba(99,102,241,0.35)",
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.background =
+                        "rgba(99,102,241,0.2)";
+                      (e.currentTarget as HTMLButtonElement).style.borderColor =
+                        "rgba(99,102,241,0.6)";
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.background =
+                        "rgba(99,102,241,0.12)";
+                      (e.currentTarget as HTMLButtonElement).style.borderColor =
+                        "rgba(99,102,241,0.35)";
+                    }}
+                  >
+                    <div
+                      className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+                      style={{ background: "rgba(99,102,241,0.25)" }}
+                    >
+                      <Mail size={16} className="text-indigo-300" />
+                    </div>
+                    <div>
+                      <p className="text-white font-semibold text-sm">{meta.label}</p>
+                      <p className="text-indigo-300 text-xs mt-0.5">{meta.description}</p>
+                    </div>
+                  </button>
+                );
+              })}
+
+            {/* ── Divider ── */}
+            <div className="flex items-center gap-3 my-4">
+              <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+              <span className="text-zinc-600 text-xs">or</span>
+              <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+            </div>
+
+            {/* ── Section 2: Crypto wallets ── */}
+            <p className="text-zinc-500 text-xs font-semibold uppercase tracking-wider mb-2">
+              I have a crypto wallet
+            </p>
+            {connectors
+              .filter((c) => c.id !== WALLETLESS_CONNECTOR_ID)
+              .map((connector) => {
+                const meta = CONNECTOR_LABELS[connector.id] ?? {
+                  label: connector.name,
+                  description: "",
+                };
+                return (
+                  <button
+                    key={connector.uid}
+                    onClick={() => {
+                      connect({ connector });
+                      setShowWalletModal(false);
+                    }}
+                    className="flex items-center gap-4 w-full rounded-xl p-4 text-left transition-all duration-150 hover:scale-[1.02] active:scale-[0.98]"
+                    style={{
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.borderColor =
+                        "rgba(255,255,255,0.2)";
+                      (e.currentTarget as HTMLButtonElement).style.background =
+                        "rgba(255,255,255,0.07)";
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.borderColor =
+                        "rgba(255,255,255,0.08)";
+                      (e.currentTarget as HTMLButtonElement).style.background =
+                        "rgba(255,255,255,0.04)";
+                    }}
+                  >
+                    <div
+                      className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+                      style={{ background: "rgba(255,255,255,0.07)" }}
+                    >
+                      <Wallet size={16} className="text-zinc-400" />
+                    </div>
+                    <div>
+                      <p className="text-white font-semibold text-sm">{meta.label}</p>
+                      {meta.description && (
+                        <p className="text-zinc-500 text-xs mt-0.5">{meta.description}</p>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+          </div>
+        </div>
+      )}
+    </>
   );
 }

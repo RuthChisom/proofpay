@@ -12,6 +12,7 @@
     "@lit-protocol/encryption": "^7.4.0",
     "@lit-protocol/lit-node-client": "^7.4.0",
     "@onflow/fcl": "^1.21.9",
+    "@onflow/fcl-ethereum-provider": "^0.1.2",
     "@tanstack/react-query": "^5.90.21",
     "@web3-storage/w3up-client": "^17.3.0",
     "ethers": "^6.16.0",

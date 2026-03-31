@@ -242,8 +242,8 @@ function JobCard({
               disabled={isPending || isConfirming || !releaseAmountInput}
               className="px-6 py-3 bg-green-600 text-white rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-green-700 transition-all disabled:opacity-50"
             >
-              {(isPending || isConfirming) ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle size={16} />}
-              Release
+              <Loader2 className={`animate-spin ${(isPending || isConfirming) ? "" : "hidden"}`} size={16} />
+              {(isPending || isConfirming) ? "Processing..." : <><CheckCircle size={16} /> Release</>}
             </button>
           </div>
         </div>
@@ -282,7 +282,7 @@ function JobCard({
             disabled={isPending || isConfirming}
             className="px-8 py-3 bg-amber-600 text-white rounded-2xl font-bold flex items-center gap-2 hover:bg-amber-700 animate-pulse shadow-lg shadow-amber-500/20 disabled:opacity-50"
           >
-            <Clock size={18} /> Claim Payment (Auto-Release)
+            {(isPending || isConfirming) ? <><Loader2 className="animate-spin" size={18} /> Processing...</> : <><Clock size={18} /> Claim Payment (Auto-Release)</>}
           </button>
         )}
         {activeTab === "client" && isOpen && (
@@ -300,7 +300,7 @@ const FLOW_CHAIN_ID = 545;
 const FLOW_CHAIN_ID_HEX = "0x221";
 
 export default function Dashboard({ userAddress }: { userAddress: string }) {
-  const { chain } = useAccount();
+  const { chain, connector } = useAccount();
   const [isSwitchingChain, setIsSwitchingChain] = useState(false);
   const today = new Date();
   today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
@@ -308,15 +308,17 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
   const isValidFutureDeadline = (deadline: string) => deadline >= minSelectableDeadline;
 
   const handleSwitchToFlow = async () => {
-    const eth = (window as any).ethereum;
+    // Use the active connector's provider so the chain change event reaches
+    // wagmi regardless of whether the user connected via MetaMask or FCL.
+    const eth = connector ? await connector.getProvider() : (window as any).ethereum;
     if (!eth) return;
     setIsSwitchingChain(true);
     try {
-      await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: FLOW_CHAIN_ID_HEX }] });
+      await (eth as any).request({ method: "wallet_switchEthereumChain", params: [{ chainId: FLOW_CHAIN_ID_HEX }] });
     } catch (err: any) {
       if (err?.code === 4902 || err?.data?.originalError?.code === 4902) {
         try {
-          await eth.request({
+          await (eth as any).request({
             method: "wallet_addEthereumChain",
             params: [{ chainId: FLOW_CHAIN_ID_HEX, chainName: "Flow EVM Testnet",
               nativeCurrency: { name: "FLOW", symbol: "FLOW", decimals: 18 },
@@ -616,7 +618,7 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
                   disabled={isPending || isConfirming || proofForm.isUploading || !proofForm.cid}
                   className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2"
                 >
-                  {(isPending || isConfirming) ? <Loader2 className="animate-spin" size={18} /> : "Submit Proof"}
+                  {(isPending || isConfirming) ? <><Loader2 className="animate-spin" size={18} /> Processing...</> : "Submit Proof"}
                 </button>
               </div>
             </div>
@@ -778,8 +780,7 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
                   disabled={isPending || isConfirming}
                   className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2 mt-4 shadow-lg shadow-indigo-500/20"
                 >
-                  {(isPending || isConfirming) ? <Loader2 className="animate-spin" /> : <Zap size={18} />}
-                  Create & Deposit
+                  {(isPending || isConfirming) ? <><Loader2 className="animate-spin" size={18} /> Processing...</> : <><Zap size={18} /> Create & Deposit</>}
                 </button>
               </div>
             </div>

@@ -1,0 +1,16 @@
+{
+  "name": "proofpay-relayer",
+  "version": "1.0.0",
+  "description": "Gas-sponsoring relayer for ProofPay on Flow EVM",
+  "main": "relayer.js",
+  "scripts": {
+    "start": "node relayer.js",
+    "dev": "node --watch relayer.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "viem": "^2.47.2"
+  }
+}

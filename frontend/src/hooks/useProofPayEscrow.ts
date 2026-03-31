@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { useAccount, usePublicClient, useWaitForTransactionReceipt, useWalletClient } from "wagmi";
+import { useAccount, usePublicClient, useSignMessage, useWaitForTransactionReceipt, useWalletClient } from "wagmi";
 import { CONFIG, ProofPayEscrow } from "../lib/contracts";
 import { BaseError, parseEther } from "viem";
+import { relayTransaction, type RelayableFn } from "../lib/relay";
 
 function normalizeContractError(error: unknown) {
   if (error instanceof BaseError) {
@@ -34,10 +35,11 @@ function normalizeContractError(error: unknown) {
 }
 
 export function useProofPayEscrow() {
-  const { chain } = useAccount();
+  const { chain, address } = useAccount();
   const publicClient = usePublicClient({ chainId: CONFIG.CHAIN_ID });
   // Pin to chain 545 so wagmi prepares the wallet client for Flow EVM specifically.
   const { data: walletClient } = useWalletClient({ chainId: CONFIG.CHAIN_ID });
+  const { signMessageAsync } = useSignMessage();
   const [hash, setHash] = useState<`0x${string}` | undefined>(undefined);
   const [error, setError] = useState<Error | null>(null);
   const [isPending, setIsPending] = useState(false);
@@ -99,29 +101,47 @@ export function useProofPayEscrow() {
       value: parseEther(amount),
     });
 
+  // ── Relay helper ──────────────────────────────────────────────────────────
+  // Routes eligible calls through the gas-sponsoring relayer so the user does
+  // not need FLOW tokens. The user signs a lightweight message to prove
+  // authorisation; the relayer verifies the signature before submitting.
+  // createJob is excluded because it is payable (msg.value cannot be relayed).
+  const writeOrRelay = useCallback(
+    async (functionName: RelayableFn, args: readonly unknown[]) => {
+      if (!address) {
+        throw new Error("Connect a wallet to continue.");
+      }
+
+      setIsPending(true);
+      setError(null);
+
+      try {
+        const signature = await signMessageAsync({ message: "Authorize ProofPay transaction" });
+        const txHash = await relayTransaction(functionName, [...args], address, signature);
+        setHash(txHash);
+        return txHash;
+      } catch (err) {
+        const nextError = normalizeContractError(err);
+        setError(nextError);
+        throw nextError;
+      } finally {
+        setIsPending(false);
+      }
+    },
+    [address, signMessageAsync]
+  );
+
   const acceptJob = (jobId: bigint) =>
-    writeWithEstimatedGas({
-      functionName: "acceptJob",
-      args: [jobId],
-    });
+    writeOrRelay("acceptJob", [jobId]);
 
   const submitProof = (jobId: bigint, ipfsHash: string) =>
-    writeWithEstimatedGas({
-      functionName: "submitProof",
-      args: [jobId, ipfsHash],
-    });
+    writeOrRelay("submitProof", [jobId, ipfsHash]);
 
   const releasePayment = (jobId: bigint, amount: string) =>
-    writeWithEstimatedGas({
-      functionName: "releasePayment",
-      args: [jobId, parseEther(amount)],
-    });
+    writeOrRelay("releasePayment", [jobId, parseEther(amount)]);
 
   const claimPaymentIfClientInactive = (jobId: bigint) =>
-    writeWithEstimatedGas({
-      functionName: "claimPaymentIfClientInactive",
-      args: [jobId],
-    });
+    writeOrRelay("claimPaymentIfClientInactive", [jobId]);
 
   return {
     createJob,
