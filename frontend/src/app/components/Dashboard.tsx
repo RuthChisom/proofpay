@@ -7,6 +7,7 @@ import { useJobs, JobStatus } from "../../hooks/useJobs";
 import { useProofPayEscrow } from "../../hooks/useProofPayEscrow";
 import { ProofPayEscrow } from "../../lib/contracts";
 import { formatEther, isAddress } from "viem";
+import { uploadFile } from "../../lib/storachaUpload";
 
 const FLOW_USD_RATE = 5; // 1 FLOW = $5 for demo
 
@@ -82,7 +83,15 @@ function JobCard({
   const overdue = isOverdue(jobMeta.deadline);
 
   const proof = job.proofHash ? (() => {
-    try { return JSON.parse(job.proofHash); } catch { return { link: job.proofHash }; }
+    try {
+      const parsed = JSON.parse(job.proofHash);
+      if (typeof parsed === "string") return { cid: parsed, link: `https://${parsed}.ipfs.storacha.link` };
+      if (parsed?.cid) return { ...parsed, link: `https://${parsed.cid}.ipfs.storacha.link` };
+      if (parsed?.link) return parsed;
+      return null;
+    } catch {
+      return { cid: job.proofHash, link: `https://${job.proofHash}.ipfs.storacha.link` };
+    }
   })() : null;
 
   const statusLabel = isCompleted ? "Completed"
@@ -185,7 +194,12 @@ function JobCard({
           <span className="text-[10px] font-bold text-amber-600 uppercase flex items-center gap-2 mb-3">
             <UploadCloud size={14} /> Proof of Work Submitted
           </span>
-          <p className="text-sm font-medium mb-3 text-zinc-700 dark:text-zinc-300">{proof.description || "Work submitted"}</p>
+          <p className="text-sm font-medium mb-3 text-zinc-700 dark:text-zinc-300">{jobMeta.proofDescription || proof.description || "Work submitted"}</p>
+          {proof.cid && (
+            <p className="text-xs mb-3 break-all font-mono text-zinc-500 dark:text-zinc-400">
+              CID: {proof.cid}
+            </p>
+          )}
           <a
             href={proof.link}
             target="_blank"
@@ -326,7 +340,12 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
 
   const [editingJobId, setEditingJobId] = useState<string | null>(null);
   const [submittingProofJobId, setSubmittingProofJobId] = useState<bigint | null>(null);
-  const [proofForm, setProofForm] = useState({ description: "", link: "" });
+  const [proofForm, setProofForm] = useState<{ description: string; file: File | null; cid: string; isUploading: boolean }>({
+    description: "",
+    file: null,
+    cid: "",
+    isUploading: false,
+  });
   // Step 4: per-job release amount inputs
   const [releaseAmountInputs, setReleaseAmountInputs] = useState<Record<string, string>>({});
 
@@ -353,7 +372,7 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
       setTimeout(() => refetch(), 3000);
       setSubmittingProofJobId(null);
       setEditingJobId(null);
-      setProofForm({ description: "", link: "" });
+      setProofForm({ description: "", file: null, cid: "", isUploading: false });
     }
   }, [isConfirmed]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -447,15 +466,37 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
 
   const handleSubmitProof = async () => {
     if (submittingProofJobId === null) return;
-    if (!proofForm.description || !proofForm.link) {
-      showToast("Please provide both description and link.", "error");
+    if (!proofForm.description || !proofForm.cid) {
+      showToast("Please provide a description and upload a file.", "error");
       return;
     }
-    const combinedProof = JSON.stringify({ description: proofForm.description, link: proofForm.link, timestamp: Date.now() });
+    const jobIdKey = submittingProofJobId.toString();
+    const updated = {
+      ...metadata,
+      [jobIdKey]: {
+        ...metadata[jobIdKey],
+        proofDescription: proofForm.description,
+      },
+    };
     try {
-      await submitProof(submittingProofJobId, combinedProof);
-    } catch {
-      showToast("Failed to submit proof.", "error");
+      setMetadata(updated);
+      localStorage.setItem("proofpay_metadata", JSON.stringify(updated));
+      await submitProof(submittingProofJobId, proofForm.cid);
+    } catch (err: any) {
+      showToast(err.message || "Failed to submit proof.", "error");
+    }
+  };
+
+  const handleProofFileChange = async (file: File | null) => {
+    if (!file) return;
+    setProofForm((prev) => ({ ...prev, file, cid: "", isUploading: true }));
+    try {
+      const cid = await uploadFile(file);
+      setProofForm((prev) => ({ ...prev, cid, isUploading: false }));
+      showToast("File uploaded to Storacha.", "success");
+    } catch (err: any) {
+      setProofForm((prev) => ({ ...prev, isUploading: false }));
+      showToast(err.message || "Failed to upload file to Storacha.", "error");
     }
   };
 
@@ -500,7 +541,7 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
     const clientMatch = job.client?.toLowerCase() === userAddress.toLowerCase();
     const freelancerMatch = job.freelancer?.toLowerCase() === userAddress.toLowerCase();
     const isOwner = activeTab === "client" ? clientMatch : freelancerMatch;
-    console.log(`[Dashboard] job[${job.id}] client:${job.client} freelancer:${job.freelancer} clientMatch:${clientMatch} freelancerMatch:${freelancerMatch} isOwner:${isOwner}`);
+    // console.log(`[Dashboard] job[${job.id}] client:${job.client} freelancer:${job.freelancer} clientMatch:${clientMatch} freelancerMatch:${freelancerMatch} isOwner:${isOwner}`);
     if (activeTab === "freelancer") {
       const jobMeta = metadata[job.id.toString()];
       if (isOverdue(jobMeta?.deadline) && job.status === JobStatus.OPEN) return false;
@@ -534,16 +575,6 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
 
   return (
     <div className="w-full max-w-6xl p-6 space-y-8 relative">
-      {toast && (
-        <div className={`fixed top-8 right-8 z-50 p-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 ${
-          toast.type === "success" ? "bg-green-600 text-white" :
-          toast.type === "error" ? "bg-red-600 text-white" : "bg-indigo-600 text-white"
-        }`}>
-          {toast.type === "success" ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
-          <span className="font-bold">{toast.message}</span>
-        </div>
-      )}
-
       {/* Proof Submission Modal */}
       {submittingProofJobId !== null && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -559,17 +590,22 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
                   className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm h-24"
                   placeholder="What have you completed?"
                   value={proofForm.description}
-                  onChange={(e) => setProofForm({ ...proofForm, description: e.target.value })}
+                  onChange={(e) => setProofForm((prev) => ({ ...prev, description: e.target.value }))}
                 />
               </div>
               <div>
-                <label className="text-xs font-bold text-zinc-400 uppercase tracking-widest mb-1 block">Proof Link (URL or CID)</label>
+                <label className="text-xs font-bold text-zinc-400 uppercase tracking-widest mb-1 block">Proof File</label>
                 <input
+                  type="file"
                   className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm"
-                  placeholder="https://..."
-                  value={proofForm.link}
-                  onChange={(e) => setProofForm({ ...proofForm, link: e.target.value })}
+                  onChange={(e) => handleProofFileChange(e.target.files?.[0] || null)}
                 />
+                {proofForm.isUploading && (
+                  <p className="text-xs mt-2 text-indigo-600 font-semibold">Uploading to Storacha... Please hold on</p>
+                )}
+                {proofForm.cid && (
+                  <p className="text-xs mt-2 text-zinc-500 break-all font-mono">CID: {proofForm.cid}</p>
+                )}
               </div>
               <div className="flex gap-3 pt-2">
                 <button onClick={() => setSubmittingProofJobId(null)} className="flex-1 py-3 bg-zinc-100 dark:bg-zinc-800 rounded-xl font-bold text-sm">
@@ -577,7 +613,7 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
                 </button>
                 <button
                   onClick={handleSubmitProof}
-                  disabled={isPending || isConfirming}
+                  disabled={isPending || isConfirming || proofForm.isUploading || !proofForm.cid}
                   className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2"
                 >
                   {(isPending || isConfirming) ? <Loader2 className="animate-spin" size={18} /> : "Submit Proof"}
@@ -827,6 +863,15 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
           )}
         </div>
       </div>
+      {toast && (
+        <div className={`fixed top-8 right-8 z-[100] p-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 ${
+          toast.type === "success" ? "bg-green-600 text-white" :
+          toast.type === "error" ? "bg-red-600 text-white" : "bg-indigo-600 text-white"
+        }`}>
+          {toast.type === "success" ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
+          <span className="font-bold">{toast.message}</span>
+        </div>
+      )}
     </div>
   );
 }
