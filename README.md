@@ -297,6 +297,16 @@ PRIVATE_KEY=0x...
 
 Contract addresses are hardcoded in `frontend/src/lib/contracts.ts`. Update `ESCROW_ADDRESS` and `REGISTRY_ADDRESS` there after any redeployment.
 
+For Storacha uploads in the proof submission flow, add:
+
+```env
+# Storacha account email used by the frontend agent login
+NEXT_PUBLIC_STORACHA_EMAIL=you@example.com
+
+# Optional: space name used/created by ProofPay uploads
+NEXT_PUBLIC_STORACHA_SPACE=proofpay
+```
+
 ---
 
 ## Deployment
