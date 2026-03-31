@@ -27,6 +27,8 @@ const {
   createWalletClient,
   createPublicClient,
   http,
+  recoverAddress,
+  hashMessage,
 } = require("viem");
 const { privateKeyToAccount } = require("viem/accounts");
 
@@ -84,6 +86,20 @@ const ALLOWED_FUNCTIONS = new Set([
   "claimPaymentIfClientInactive",
 ]);
 
+// ─── Expected argument counts per function ───────────────────────────────────
+const EXPECTED_ARG_COUNTS = {
+  acceptJob: 1,                   // (uint256 jobId)
+  submitProof: 2,                 // (uint256 jobId, string ipfsHash)
+  releasePayment: 2,              // (uint256 jobId, uint256 amount)
+  claimPaymentIfClientInactive: 1, // (uint256 jobId)
+};
+
+// Valid EVM address: 0x followed by exactly 40 hex characters
+const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+
+// Message the frontend signs to authorise every relay request
+const AUTH_MESSAGE = "Authorize ProofPay transaction";
+
 // ─── Arg coercion ────────────────────────────────────────────────────────────
 // JSON cannot represent BigInt. The frontend sends uint256 values as decimal
 // strings; this function converts them back to BigInt before passing to viem.
@@ -120,20 +136,27 @@ app.get("/health", (_req, res) => {
 });
 
 // ─── POST /relay ──────────────────────────────────────────────────────────────
-// Body:   { functionName: string, args: unknown[], userAddress: string }
+// Body:   { functionName: string, args: unknown[], userAddress: string, signature: string }
 // Returns: { txHash: `0x${string}` }
 app.post("/relay", async (req, res) => {
-  const { functionName, args, userAddress } = req.body;
+  const { functionName, args, userAddress, signature } = req.body;
 
   // ── Input validation ──────────────────────────────────────────────────────
   if (
     typeof functionName !== "string" ||
     !Array.isArray(args) ||
-    typeof userAddress !== "string"
+    typeof userAddress !== "string" ||
+    typeof signature !== "string"
   ) {
     return res.status(400).json({
       error:
-        "Request body must include: functionName (string), args (array), userAddress (string)",
+        "Request body must include: functionName (string), args (array), userAddress (string), signature (string)",
+    });
+  }
+
+  if (!EVM_ADDRESS_RE.test(userAddress)) {
+    return res.status(400).json({
+      error: "userAddress must be a valid EVM address (0x + 40 hex characters)",
     });
   }
 
@@ -143,6 +166,29 @@ app.post("/relay", async (req, res) => {
         ...ALLOWED_FUNCTIONS,
       ].join(", ")}`,
     });
+  }
+
+  // ── Arg count validation ──────────────────────────────────────────────────
+  const expectedCount = EXPECTED_ARG_COUNTS[functionName];
+  if (args.length !== expectedCount) {
+    return res.status(400).json({
+      error: `${functionName} expects ${expectedCount} argument(s), got ${args.length}`,
+    });
+  }
+
+  // ── Signature verification ────────────────────────────────────────────────
+  try {
+    const recovered = await recoverAddress({
+      hash: hashMessage(AUTH_MESSAGE),
+      signature: /** @type {`0x${string}`} */ (signature),
+    });
+    if (recovered.toLowerCase() !== userAddress.toLowerCase()) {
+      return res.status(401).json({
+        error: "Signature verification failed: recovered address does not match userAddress",
+      });
+    }
+  } catch {
+    return res.status(401).json({ error: "Invalid signature" });
   }
 
   // ── Coerce BigInt args ────────────────────────────────────────────────────

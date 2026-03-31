@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { useAccount, usePublicClient, useWaitForTransactionReceipt, useWalletClient } from "wagmi";
+import { useAccount, usePublicClient, useSignMessage, useWaitForTransactionReceipt, useWalletClient } from "wagmi";
 import { CONFIG, ProofPayEscrow } from "../lib/contracts";
 import { BaseError, parseEther } from "viem";
 import { relayTransaction, type RelayableFn } from "../lib/relay";
@@ -34,16 +34,12 @@ function normalizeContractError(error: unknown) {
   return error instanceof Error ? error : new Error("Transaction failed.");
 }
 
-// Set NEXT_PUBLIC_USE_RELAY=true in frontend/.env.local to route eligible
-// write calls through the gas-sponsoring relayer backend instead of
-// having the user's wallet submit (and pay for) the transaction directly.
-const USE_RELAY = process.env.NEXT_PUBLIC_USE_RELAY === "true";
-
 export function useProofPayEscrow() {
   const { chain, address } = useAccount();
   const publicClient = usePublicClient({ chainId: CONFIG.CHAIN_ID });
   // Pin to chain 545 so wagmi prepares the wallet client for Flow EVM specifically.
   const { data: walletClient } = useWalletClient({ chainId: CONFIG.CHAIN_ID });
+  const { signMessageAsync } = useSignMessage();
   const [hash, setHash] = useState<`0x${string}` | undefined>(undefined);
   const [error, setError] = useState<Error | null>(null);
   const [isPending, setIsPending] = useState(false);
@@ -106,19 +102,33 @@ export function useProofPayEscrow() {
     });
 
   // ── Relay helper ──────────────────────────────────────────────────────────
-  // Wraps a single contract call: uses the relayer backend when USE_RELAY is
-  // enabled, otherwise falls back to the standard wallet submission path.
-  // createJob is excluded from relay because it is payable (msg.value).
+  // Routes eligible calls through the gas-sponsoring relayer so the user does
+  // not need FLOW tokens. The user signs a lightweight message to prove
+  // authorisation; the relayer verifies the signature before submitting.
+  // createJob is excluded because it is payable (msg.value cannot be relayed).
   const writeOrRelay = useCallback(
-    (functionName: RelayableFn, args: readonly unknown[]) => {
-      if (USE_RELAY && address) {
-        return relayTransaction(functionName, [...args], address).then(
-          (txHash) => { setHash(txHash); return txHash; }
-        );
+    async (functionName: RelayableFn, args: readonly unknown[]) => {
+      if (!address) {
+        throw new Error("Connect a wallet to continue.");
       }
-      return writeWithEstimatedGas({ functionName, args });
+
+      setIsPending(true);
+      setError(null);
+
+      try {
+        const signature = await signMessageAsync({ message: "Authorize ProofPay transaction" });
+        const txHash = await relayTransaction(functionName, [...args], address, signature);
+        setHash(txHash);
+        return txHash;
+      } catch (err) {
+        const nextError = normalizeContractError(err);
+        setError(nextError);
+        throw nextError;
+      } finally {
+        setIsPending(false);
+      }
     },
-    [address, writeWithEstimatedGas]
+    [address, signMessageAsync]
   );
 
   const acceptJob = (jobId: bigint) =>

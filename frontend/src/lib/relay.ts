@@ -5,8 +5,8 @@
  * the user to hold FLOW for gas), this helper POSTs the intent to the relayer
  * backend. The relayer wallet submits the on-chain transaction and pays gas.
  *
- * Enabled by setting NEXT_PUBLIC_USE_RELAY=true in frontend/.env.local and
- * running the /server/relayer.js backend.
+ * Requires the /server/relayer.js backend to be running. Configure
+ * NEXT_PUBLIC_RELAYER_URL in frontend/.env.local if not on localhost:3001.
  */
 
 const RELAYER_URL =
@@ -22,14 +22,16 @@ export type RelayableFn =
  * @param functionName  Contract function to call (must be in RelayableFn)
  * @param args          Call arguments. BigInt values are serialised to decimal
  *                      strings automatically — the relayer reconstructs them.
- * @param userAddress   EOA of the user authorising this action (used for
- *                      signature verification in later steps)
+ * @param userAddress   EOA of the user authorising this action
+ * @param signature     EIP-191 signature of "Authorize ProofPay transaction"
+ *                      produced by the user's wallet; verified server-side
  * @returns             Transaction hash returned by the relayer
  */
 export async function relayTransaction(
   functionName: RelayableFn,
   args: unknown[],
-  userAddress: string
+  userAddress: string,
+  signature: string
 ): Promise<`0x${string}`> {
   // BigInt is not JSON-serialisable; convert to decimal string
   const serialisedArgs = args.map((a) =>
@@ -39,7 +41,7 @@ export async function relayTransaction(
   const response = await fetch(`${RELAYER_URL}/relay`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ functionName, args: serialisedArgs, userAddress }),
+    body: JSON.stringify({ functionName, args: serialisedArgs, userAddress, signature }),
   });
 
   if (!response.ok) {
