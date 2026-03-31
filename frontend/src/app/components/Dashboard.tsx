@@ -288,6 +288,10 @@ const FLOW_CHAIN_ID_HEX = "0x221";
 export default function Dashboard({ userAddress }: { userAddress: string }) {
   const { chain } = useAccount();
   const [isSwitchingChain, setIsSwitchingChain] = useState(false);
+  const today = new Date();
+  today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
+  const minSelectableDeadline = today.toISOString().split("T")[0];
+  const isValidFutureDeadline = (deadline: string) => deadline >= minSelectableDeadline;
 
   const handleSwitchToFlow = async () => {
     const eth = (window as any).ethereum;
@@ -383,6 +387,11 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
       return;
     }
 
+    if (!isValidFutureDeadline(formData.deadline)) {
+      showToast("Deadline cannot be in the past.", "error");
+      return;
+    }
+
     const amountFLOW = (amountUSD / FLOW_USD_RATE).toFixed(18).replace(/\.?0+$/, "");
 
     if (!amountFLOW || Number(amountFLOW) <= 0) {
@@ -416,6 +425,10 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
 
   const handleEditJobMetadata = () => {
     if (!editingJobId) return;
+    if (!isValidFutureDeadline(formData.deadline)) {
+      showToast("Deadline cannot be in the past.", "error");
+      return;
+    }
     const updated = {
       ...metadata,
       [editingJobId]: {
@@ -599,6 +612,7 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
               <input
                 className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm"
                 type="date"
+                min={minSelectableDeadline}
                 value={formData.deadline}
                 onClick={(e) => (e.target as any).showPicker?.()}
                 onChange={(e) => setFormData({ ...formData, deadline: e.target.value })}
@@ -704,6 +718,7 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
                   <input
                     className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-sm"
                     type="date"
+                    min={minSelectableDeadline}
                     value={formData.deadline}
                     onClick={(e) => (e.target as any).showPicker?.()}
                     onChange={(e) => setFormData({ ...formData, deadline: e.target.value })}
