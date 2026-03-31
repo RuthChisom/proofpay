@@ -4,19 +4,23 @@ import { useState, useEffect } from "react";
 import { useAccount, useConnect, useConnectors, useDisconnect } from "wagmi";
 import Dashboard from "./components/Dashboard";
 import LandingPage from "./components/landing/LandingPage";
-import { ShieldCheck, LogOut, X, Wallet } from "lucide-react";
+import { ShieldCheck, LogOut, X, Mail, Wallet } from "lucide-react";
 
 const FLOW_EVM_TESTNET_CHAIN_ID = 545;
 const FLOW_EVM_TESTNET_CHAIN_ID_HEX = "0x221"; // 545 in hex
 
+// "flow-fcl" connector → walletless section (email / social via FCL Discovery + Blocto)
+// "injected"  connector → crypto-wallet section (MetaMask / browser extension)
+const WALLETLESS_CONNECTOR_ID = "flow-fcl";
+
 const CONNECTOR_LABELS: Record<string, { label: string; description: string }> = {
   injected: {
-    label: "MetaMask / Browser Wallet",
-    description: "Connect using a browser extension wallet",
+    label: "MetaMask / Browser Extension",
+    description: "Connect an existing EVM wallet",
   },
   "flow-fcl": {
-    label: "Flow Wallet",
-    description: "Connect with Blocto or any Flow-native wallet",
+    label: "Continue with Email or Social",
+    description: "Email · Google · Apple — no crypto wallet required",
   },
 };
 
@@ -152,9 +156,9 @@ export default function Home() {
                   className="w-7 h-7 rounded-lg flex items-center justify-center"
                   style={{ background: "linear-gradient(135deg, #6366f1, #8b5cf6)" }}
                 >
-                  <Wallet size={14} className="text-white" />
+                  <ShieldCheck size={14} className="text-white" />
                 </div>
-                <span className="text-white font-bold text-base">Connect Wallet</span>
+                <span className="text-white font-bold text-base">Sign in to ProofPay</span>
               </div>
               <button
                 onClick={() => setShowWalletModal(false)}
@@ -164,9 +168,13 @@ export default function Home() {
               </button>
             </div>
 
-            {/* Connector list */}
-            <div className="flex flex-col gap-3">
-              {connectors.map((connector) => {
+            {/* ── Section 1: Walletless (email / social) ── */}
+            <p className="text-zinc-500 text-xs font-semibold uppercase tracking-wider mb-2">
+              No wallet needed
+            </p>
+            {connectors
+              .filter((c) => c.id === WALLETLESS_CONNECTOR_ID)
+              .map((connector) => {
                 const meta = CONNECTOR_LABELS[connector.id] ?? {
                   label: connector.name,
                   description: "",
@@ -178,16 +186,73 @@ export default function Home() {
                       connect({ connector });
                       setShowWalletModal(false);
                     }}
-                    className="flex items-start gap-4 w-full rounded-xl p-4 text-left transition-all duration-150 hover:scale-[1.02] active:scale-[0.98]"
+                    className="flex items-center gap-4 w-full rounded-xl p-4 text-left transition-all duration-150 hover:scale-[1.02] active:scale-[0.98]"
+                    style={{
+                      background: "rgba(99,102,241,0.12)",
+                      border: "1px solid rgba(99,102,241,0.35)",
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.background =
+                        "rgba(99,102,241,0.2)";
+                      (e.currentTarget as HTMLButtonElement).style.borderColor =
+                        "rgba(99,102,241,0.6)";
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.background =
+                        "rgba(99,102,241,0.12)";
+                      (e.currentTarget as HTMLButtonElement).style.borderColor =
+                        "rgba(99,102,241,0.35)";
+                    }}
+                  >
+                    <div
+                      className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+                      style={{ background: "rgba(99,102,241,0.25)" }}
+                    >
+                      <Mail size={16} className="text-indigo-300" />
+                    </div>
+                    <div>
+                      <p className="text-white font-semibold text-sm">{meta.label}</p>
+                      <p className="text-indigo-300 text-xs mt-0.5">{meta.description}</p>
+                    </div>
+                  </button>
+                );
+              })}
+
+            {/* ── Divider ── */}
+            <div className="flex items-center gap-3 my-4">
+              <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+              <span className="text-zinc-600 text-xs">or</span>
+              <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.08)" }} />
+            </div>
+
+            {/* ── Section 2: Crypto wallets ── */}
+            <p className="text-zinc-500 text-xs font-semibold uppercase tracking-wider mb-2">
+              I have a crypto wallet
+            </p>
+            {connectors
+              .filter((c) => c.id !== WALLETLESS_CONNECTOR_ID)
+              .map((connector) => {
+                const meta = CONNECTOR_LABELS[connector.id] ?? {
+                  label: connector.name,
+                  description: "",
+                };
+                return (
+                  <button
+                    key={connector.uid}
+                    onClick={() => {
+                      connect({ connector });
+                      setShowWalletModal(false);
+                    }}
+                    className="flex items-center gap-4 w-full rounded-xl p-4 text-left transition-all duration-150 hover:scale-[1.02] active:scale-[0.98]"
                     style={{
                       background: "rgba(255,255,255,0.04)",
                       border: "1px solid rgba(255,255,255,0.08)",
                     }}
                     onMouseEnter={(e) => {
                       (e.currentTarget as HTMLButtonElement).style.borderColor =
-                        "rgba(99,102,241,0.5)";
+                        "rgba(255,255,255,0.2)";
                       (e.currentTarget as HTMLButtonElement).style.background =
-                        "rgba(99,102,241,0.08)";
+                        "rgba(255,255,255,0.07)";
                     }}
                     onMouseLeave={(e) => {
                       (e.currentTarget as HTMLButtonElement).style.borderColor =
@@ -197,10 +262,10 @@ export default function Home() {
                     }}
                   >
                     <div
-                      className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
+                      className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
                       style={{ background: "rgba(255,255,255,0.07)" }}
                     >
-                      <Wallet size={16} className="text-indigo-400" />
+                      <Wallet size={16} className="text-zinc-400" />
                     </div>
                     <div>
                       <p className="text-white font-semibold text-sm">{meta.label}</p>
@@ -211,7 +276,6 @@ export default function Home() {
                   </button>
                 );
               })}
-            </div>
           </div>
         </div>
       )}
