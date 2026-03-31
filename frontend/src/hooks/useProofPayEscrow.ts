@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { useAccount, usePublicClient, useWaitForTransactionReceipt, useWalletClient } from "wagmi";
 import { CONFIG, ProofPayEscrow } from "../lib/contracts";
 import { BaseError, parseEther } from "viem";
+import { relayTransaction, type RelayableFn } from "../lib/relay";
 
 function normalizeContractError(error: unknown) {
   if (error instanceof BaseError) {
@@ -33,8 +34,13 @@ function normalizeContractError(error: unknown) {
   return error instanceof Error ? error : new Error("Transaction failed.");
 }
 
+// Set NEXT_PUBLIC_USE_RELAY=true in frontend/.env.local to route eligible
+// write calls through the gas-sponsoring relayer backend instead of
+// having the user's wallet submit (and pay for) the transaction directly.
+const USE_RELAY = process.env.NEXT_PUBLIC_USE_RELAY === "true";
+
 export function useProofPayEscrow() {
-  const { chain } = useAccount();
+  const { chain, address } = useAccount();
   const publicClient = usePublicClient({ chainId: CONFIG.CHAIN_ID });
   // Pin to chain 545 so wagmi prepares the wallet client for Flow EVM specifically.
   const { data: walletClient } = useWalletClient({ chainId: CONFIG.CHAIN_ID });
@@ -99,29 +105,33 @@ export function useProofPayEscrow() {
       value: parseEther(amount),
     });
 
+  // ── Relay helper ──────────────────────────────────────────────────────────
+  // Wraps a single contract call: uses the relayer backend when USE_RELAY is
+  // enabled, otherwise falls back to the standard wallet submission path.
+  // createJob is excluded from relay because it is payable (msg.value).
+  const writeOrRelay = useCallback(
+    (functionName: RelayableFn, args: readonly unknown[]) => {
+      if (USE_RELAY && address) {
+        return relayTransaction(functionName, [...args], address).then(
+          (txHash) => { setHash(txHash); return txHash; }
+        );
+      }
+      return writeWithEstimatedGas({ functionName, args });
+    },
+    [address, writeWithEstimatedGas]
+  );
+
   const acceptJob = (jobId: bigint) =>
-    writeWithEstimatedGas({
-      functionName: "acceptJob",
-      args: [jobId],
-    });
+    writeOrRelay("acceptJob", [jobId]);
 
   const submitProof = (jobId: bigint, ipfsHash: string) =>
-    writeWithEstimatedGas({
-      functionName: "submitProof",
-      args: [jobId, ipfsHash],
-    });
+    writeOrRelay("submitProof", [jobId, ipfsHash]);
 
   const releasePayment = (jobId: bigint, amount: string) =>
-    writeWithEstimatedGas({
-      functionName: "releasePayment",
-      args: [jobId, parseEther(amount)],
-    });
+    writeOrRelay("releasePayment", [jobId, parseEther(amount)]);
 
   const claimPaymentIfClientInactive = (jobId: bigint) =>
-    writeWithEstimatedGas({
-      functionName: "claimPaymentIfClientInactive",
-      args: [jobId],
-    });
+    writeOrRelay("claimPaymentIfClientInactive", [jobId]);
 
   return {
     createJob,
