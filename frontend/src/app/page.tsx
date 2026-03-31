@@ -25,7 +25,7 @@ const CONNECTOR_LABELS: Record<string, { label: string; description: string }> =
 };
 
 export default function Home() {
-  const { address, isConnected, chain } = useAccount();
+  const { address, isConnected, chain, connector } = useAccount();
   const { connect } = useConnect();
   const connectors = useConnectors();
   const { disconnect } = useDisconnect();
@@ -41,11 +41,13 @@ export default function Home() {
   // isn't in the wallet yet (error 4902) it falls back to wallet_addEthereumChain
   // which adds the network and prompts the user to switch in one step.
   const handleSwitchToFlow = async () => {
-    const eth = (window as any).ethereum;
+    // Use the active connector's provider so the chain change event reaches
+    // wagmi regardless of whether the user connected via MetaMask or FCL.
+    const eth = connector ? await connector.getProvider() : (window as any).ethereum;
     if (!eth) return;
     setIsSwitchingChain(true);
     try {
-      await eth.request({
+      await (eth as any).request({
         method: "wallet_switchEthereumChain",
         params: [{ chainId: FLOW_EVM_TESTNET_CHAIN_ID_HEX }],
       });
@@ -53,7 +55,7 @@ export default function Home() {
       // 4902 = chain not yet added to the wallet
       if (err?.code === 4902 || err?.data?.originalError?.code === 4902) {
         try {
-          await eth.request({
+          await (eth as any).request({
             method: "wallet_addEthereumChain",
             params: [{
               chainId: FLOW_EVM_TESTNET_CHAIN_ID_HEX,
