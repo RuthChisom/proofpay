@@ -1,20 +1,32 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useAccount, useConnect, useDisconnect } from "wagmi";
-import { injected } from "wagmi/connectors";
+import { useAccount, useConnect, useConnectors, useDisconnect } from "wagmi";
 import Dashboard from "./components/Dashboard";
 import LandingPage from "./components/landing/LandingPage";
-import { ShieldCheck, LogOut } from "lucide-react";
+import { ShieldCheck, LogOut, X, Wallet } from "lucide-react";
 
 const FLOW_EVM_TESTNET_CHAIN_ID = 545;
 const FLOW_EVM_TESTNET_CHAIN_ID_HEX = "0x221"; // 545 in hex
 
+const CONNECTOR_LABELS: Record<string, { label: string; description: string }> = {
+  injected: {
+    label: "MetaMask / Browser Wallet",
+    description: "Connect using a browser extension wallet",
+  },
+  "flow-fcl": {
+    label: "Flow Wallet",
+    description: "Connect with Blocto or any Flow-native wallet",
+  },
+};
+
 export default function Home() {
   const { address, isConnected, chain } = useAccount();
   const { connect } = useConnect();
+  const connectors = useConnectors();
   const { disconnect } = useDisconnect();
   const [isSwitchingChain, setIsSwitchingChain] = useState(false);
+  const [showWalletModal, setShowWalletModal] = useState(false);
 
   // Defer wallet-dependent rendering until after hydration so server and
   // client produce the same initial HTML (wagmi reconnects client-side only).
@@ -77,7 +89,7 @@ export default function Home() {
             <div className="px-3 py-1 bg-zinc-100 dark:bg-zinc-800 rounded-full text-xs font-mono text-zinc-500">
               {address.slice(0, 6)}...{address.slice(-4)}
             </div>
-            <button 
+            <button
               onClick={() => disconnect()}
               className="flex items-center gap-2 text-sm font-medium text-zinc-500 hover:text-red-600 transition-colors"
             >
@@ -86,7 +98,7 @@ export default function Home() {
             </button>
           </div>
         </nav>
-        
+
         <main className="flex justify-center py-12">
           {isWrongNetwork ? (
             <div className="w-full max-w-2xl px-6">
@@ -114,6 +126,95 @@ export default function Home() {
   }
 
   return (
-    <LandingPage onConnect={() => connect({ connector: injected() })} />
+    <>
+      <LandingPage onConnect={() => setShowWalletModal(true)} />
+
+      {/* Wallet chooser modal */}
+      {showWalletModal && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)" }}
+          onClick={() => setShowWalletModal(false)}
+        >
+          <div
+            className="relative w-full max-w-sm rounded-2xl p-6"
+            style={{
+              background: "#0e0e14",
+              border: "1px solid rgba(255,255,255,0.1)",
+              boxShadow: "0 24px 80px rgba(0,0,0,0.6)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-2">
+                <div
+                  className="w-7 h-7 rounded-lg flex items-center justify-center"
+                  style={{ background: "linear-gradient(135deg, #6366f1, #8b5cf6)" }}
+                >
+                  <Wallet size={14} className="text-white" />
+                </div>
+                <span className="text-white font-bold text-base">Connect Wallet</span>
+              </div>
+              <button
+                onClick={() => setShowWalletModal(false)}
+                className="text-zinc-500 hover:text-white transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Connector list */}
+            <div className="flex flex-col gap-3">
+              {connectors.map((connector) => {
+                const meta = CONNECTOR_LABELS[connector.id] ?? {
+                  label: connector.name,
+                  description: "",
+                };
+                return (
+                  <button
+                    key={connector.uid}
+                    onClick={() => {
+                      connect({ connector });
+                      setShowWalletModal(false);
+                    }}
+                    className="flex items-start gap-4 w-full rounded-xl p-4 text-left transition-all duration-150 hover:scale-[1.02] active:scale-[0.98]"
+                    style={{
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.borderColor =
+                        "rgba(99,102,241,0.5)";
+                      (e.currentTarget as HTMLButtonElement).style.background =
+                        "rgba(99,102,241,0.08)";
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.borderColor =
+                        "rgba(255,255,255,0.08)";
+                      (e.currentTarget as HTMLButtonElement).style.background =
+                        "rgba(255,255,255,0.04)";
+                    }}
+                  >
+                    <div
+                      className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
+                      style={{ background: "rgba(255,255,255,0.07)" }}
+                    >
+                      <Wallet size={16} className="text-indigo-400" />
+                    </div>
+                    <div>
+                      <p className="text-white font-semibold text-sm">{meta.label}</p>
+                      {meta.description && (
+                        <p className="text-zinc-500 text-xs mt-0.5">{meta.description}</p>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
