@@ -599,9 +599,6 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
     }
   };
 
-  // handleClaimInactive removed — freelancer payment is handled automatically by client approval
-  };
-
   const handleReject = (jobId: bigint) => {
     const updated = {
       ...metadata,
