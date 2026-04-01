@@ -295,6 +295,58 @@ function JobCard({
   );
 }
 
+// ─── Compact list row ─────────────────────────────────────────────────────────
+function JobRow({
+  job,
+  metadata,
+  onViewDetails,
+}: {
+  job: any;
+  metadata: Record<string, any>;
+  onViewDetails: () => void;
+}) {
+  const jobMeta = metadata[job.id.toString()] || {};
+
+  const isCompleted = job.status === JobStatus.COMPLETED;
+  const isProofSubmitted = job.status === JobStatus.PROOF_SUBMITTED;
+  const isAccepted = job.status === JobStatus.ACCEPTED;
+
+  const statusLabel = isCompleted ? "Completed"
+    : isProofSubmitted ? "In Review"
+    : isAccepted ? "Ongoing"
+    : "Pending";
+
+  const statusStyle = isCompleted ? "bg-green-100 text-green-700"
+    : isProofSubmitted ? "bg-amber-100 text-amber-700"
+    : isAccepted ? "bg-blue-100 text-blue-700"
+    : "bg-zinc-100 text-zinc-700";
+
+  let dueDateDisplay = "No deadline";
+  if (jobMeta.deadline) {
+    dueDateDisplay = new Date(jobMeta.deadline).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  } else if (job.createdAt) {
+    dueDateDisplay = "Created " + new Date(Number(job.createdAt) * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  }
+
+  return (
+    <div className="flex items-center justify-between p-4 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm hover:shadow-md transition-all gap-4">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-bold truncate">{job.jobTitle || jobMeta.title || `Job #${job.id.toString()}`}</p>
+        <p className="text-xs text-zinc-400 mt-0.5">{dueDateDisplay}</p>
+      </div>
+      <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shrink-0 ${statusStyle}`}>
+        {statusLabel}
+      </span>
+      <button
+        onClick={onViewDetails}
+        className="px-4 py-2 text-xs font-bold text-indigo-600 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors shrink-0"
+      >
+        View Details
+      </button>
+    </div>
+  );
+}
+
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 const FLOW_CHAIN_ID = 545;
 const FLOW_CHAIN_ID_HEX = "0x221";
@@ -348,6 +400,7 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
   });
   // Step 4: per-job release amount inputs
   const [releaseAmountInputs, setReleaseAmountInputs] = useState<Record<string, string>>({});
+  const [selectedJobId, setSelectedJobId] = useState<bigint | null>(null);
 
   const { jobs, isLoading: jobsLoading, refetch, jobCount } = useJobs();
   const { createJob, acceptJob, submitProof, releasePayment, claimPaymentIfClientInactive, isPending, isConfirming, isConfirmed, error: txError } = useProofPayEscrow();
@@ -669,6 +722,45 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
         </div>
       )}
 
+      {/* Job Detail Modal */}
+      {selectedJobId !== null && (() => {
+        const selectedJob = filteredJobs.find((j) => j?.id === selectedJobId);
+        if (!selectedJob) return null;
+        const jobMeta = metadata[selectedJob.id.toString()] || {};
+        return (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto" onClick={() => setSelectedJobId(null)}>
+            <div className="w-full max-w-2xl my-8 relative" onClick={(e) => e.stopPropagation()}>
+              <button
+                onClick={() => setSelectedJobId(null)}
+                className="absolute -top-3 -right-3 z-10 p-2 rounded-full bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-100 shadow-md transition-colors"
+              >
+                <XCircle size={20} />
+              </button>
+              <JobCard
+                job={selectedJob}
+                activeTab={activeTab}
+                userAddress={userAddress}
+                metadata={metadata}
+                releaseAmountInput={releaseAmountInputs[selectedJob.id.toString()] || ""}
+                onReleaseAmountChange={(val) => setReleaseAmountInputs((prev) => ({ ...prev, [selectedJob.id.toString()]: val }))}
+                onAccept={acceptJob}
+                onReject={handleReject}
+                onOpenProofModal={setSubmittingProofJobId}
+                onReleasePayment={handleReleasePayment}
+                onClaimInactive={handleClaimInactive}
+                onEdit={(id) => {
+                  setSelectedJobId(null);
+                  setEditingJobId(id);
+                  setFormData({ ...formData, title: jobMeta.title || "", description: jobMeta.description || "", deadline: jobMeta.deadline || "" });
+                }}
+                isPending={isPending}
+                isConfirming={isConfirming}
+              />
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Dashboard header */}
       <div className="bg-indigo-600 rounded-3xl p-8 text-white flex flex-col md:flex-row justify-between items-center shadow-2xl shadow-indigo-500/20 gap-6">
         <div>
@@ -838,25 +930,11 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
               const jobMeta = metadata[job.id.toString()] || {};
               if (jobMeta.rejected && activeTab === "freelancer") return null;
               return (
-                <JobCard
+                <JobRow
                   key={job.id.toString()}
                   job={job}
-                  activeTab={activeTab}
-                  userAddress={userAddress}
                   metadata={metadata}
-                  releaseAmountInput={releaseAmountInputs[job.id.toString()] || ""}
-                  onReleaseAmountChange={(val) => setReleaseAmountInputs((prev) => ({ ...prev, [job.id.toString()]: val }))}
-                  onAccept={acceptJob}
-                  onReject={handleReject}
-                  onOpenProofModal={setSubmittingProofJobId}
-                  onReleasePayment={handleReleasePayment}
-                  onClaimInactive={handleClaimInactive}
-                  onEdit={(id) => {
-                    setEditingJobId(id);
-                    setFormData({ ...formData, title: jobMeta.title || "", description: jobMeta.description || "", deadline: jobMeta.deadline || "" });
-                  }}
-                  isPending={isPending}
-                  isConfirming={isConfirming}
+                  onViewDetails={() => setSelectedJobId(job.id)}
                 />
               );
             })
