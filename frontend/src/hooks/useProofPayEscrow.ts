@@ -2,8 +2,9 @@
 
 import { useCallback, useState } from "react";
 import { useAccount, usePublicClient, useWaitForTransactionReceipt, useWalletClient } from "wagmi";
-import { CONFIG, ProofPayEscrow } from "../lib/contracts";
+import { CONFIG } from "../lib/contracts";
 import { BaseError, parseEther } from "viem";
+import { relayTransaction } from "../lib/relayTransaction";
 
 function normalizeContractError(error: unknown) {
   if (error instanceof BaseError) {
@@ -76,19 +77,12 @@ export function useProofPayEscrow() {
         }
       }
 
-      const { request } = await publicClient.simulateContract({
-        account: walletClient.account,
-        address: ProofPayEscrow.address,
-        abi: ProofPayEscrow.abi,
+      const { txHash } = await relayTransaction({
         functionName,
         args,
         value,
-      });
-
-      const gas = request.gas ? (request.gas * 12n) / 10n : undefined;
-      const txHash = await walletClient.writeContract({
-        ...request,
-        gas,
+        userAddress: walletClient.account.address,
+        signMessage: (message) => walletClient.signMessage({ message }),
       });
 
       setHash(txHash);
