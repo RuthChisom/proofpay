@@ -22,7 +22,6 @@ function JobCard({
   onOpenProofModal,
   onReleasePayment,
   onRejectProof,
-  onClaimInactive,
   onEdit,
   isPending,
   isConfirming,
@@ -36,7 +35,6 @@ function JobCard({
   onOpenProofModal: (id: bigint) => void;
   onReleasePayment: (id: bigint, amount: string) => void;
   onRejectProof: (id: bigint, reason: string) => void;
-  onClaimInactive: (id: bigint) => void;
   onEdit: (id: string) => void;
   isPending: boolean;
   isConfirming: boolean;
@@ -74,24 +72,6 @@ function JobCard({
   // Remaining funds to release
   const remaining = ((job.totalAmount ?? 0n) - (job.releasedAmount ?? 0n)) as unknown as bigint;
 
-  // Step 6: auto-claim eligibility using on-chain proofSubmittedAt
-  const nowSecs = Math.floor(Date.now() / 1000);
-  const canAutoRelease =
-    isProofSubmitted &&
-    job.proofSubmittedAt > 0n &&
-    BigInt(nowSecs) >= job.proofSubmittedAt + BigInt(48 * 3600);
-
-  // Countdown to auto-release (ms remaining)
-  const autoReleaseMs =
-    isProofSubmitted && job.proofSubmittedAt > 0n
-      ? Number(job.proofSubmittedAt) * 1000 + 48 * 3600 * 1000 - Date.now()
-      : -1;
-  const autoReleaseCountdown = (() => {
-    if (autoReleaseMs <= 0) return null;
-    const h = Math.floor(autoReleaseMs / 3600000);
-    const m = Math.floor((autoReleaseMs % 3600000) / 60000);
-    return `${h}h ${m}m`;
-  })();
 
   const isOverdue = (deadline: string) => {
     if (!deadline) return false;
@@ -246,14 +226,6 @@ function JobCard({
             </div>
           </div>
 
-          {/* Countdown to auto-release */}
-          {autoReleaseCountdown && (
-            <div className="flex items-center gap-2 text-xs text-amber-600 font-semibold">
-              <Clock size={14} />
-              Auto-release in {autoReleaseCountdown}
-            </div>
-          )}
-
           {/* Previous rejection reason */}
           {jobMeta.proofRejectedReason && (
             <div className="p-3 rounded-xl bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 text-xs text-red-600 font-medium">
@@ -344,16 +316,6 @@ function JobCard({
             className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-bold flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/20"
           >
             <UploadCloud size={18} /> {isProofSubmitted ? "Update Proof" : "Submit Proof"}
-          </button>
-        )}
-        {/* Step 6: auto-claim after 48h */}
-        {activeTab === "freelancer" && canAutoRelease && !isCompleted && (
-          <button
-            onClick={() => onClaimInactive(job.id)}
-            disabled={isPending || isConfirming}
-            className="px-8 py-3 bg-amber-600 text-white rounded-2xl font-bold flex items-center gap-2 hover:bg-amber-700 animate-pulse shadow-lg shadow-amber-500/20 disabled:opacity-50"
-          >
-            <Clock size={18} /> Claim Payment (Auto-Release)
           </button>
         )}
         {activeTab === "client" && isOpen && (
@@ -474,7 +436,7 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
   const [selectedJobId, setSelectedJobId] = useState<bigint | null>(null);
 
   const { jobs, isLoading: jobsLoading, refetch, jobCount } = useJobs();
-  const { createJob, acceptJob, submitProof, releasePayment, claimPaymentIfClientInactive, isPending, isConfirming, isConfirmed, error: txError } = useProofPayEscrow();
+  const { createJob, acceptJob, submitProof, releasePayment, isPending, isConfirming, isConfirmed, error: txError } = useProofPayEscrow();
 
   const [activeTab, setActiveTab] = useState<"client" | "freelancer">("client");
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
@@ -637,12 +599,7 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
     }
   };
 
-  const handleClaimInactive = async (jobId: bigint) => {
-    try {
-      await claimPaymentIfClientInactive(jobId);
-    } catch {
-      showToast("Claim failed.", "error");
-    }
+  // handleClaimInactive removed — freelancer payment is handled automatically by client approval
   };
 
   const handleReject = (jobId: bigint) => {
@@ -827,7 +784,6 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
                 onOpenProofModal={setSubmittingProofJobId}
                 onReleasePayment={handleReleasePayment}
                 onRejectProof={handleRejectProof}
-                onClaimInactive={handleClaimInactive}
                 onEdit={(id) => {
                   setSelectedJobId(null);
                   setEditingJobId(id);

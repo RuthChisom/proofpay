@@ -2,9 +2,8 @@
 
 import { useCallback, useState } from "react";
 import { useAccount, usePublicClient, useWaitForTransactionReceipt, useWalletClient } from "wagmi";
-import { CONFIG } from "../lib/contracts";
+import { CONFIG, ProofPayEscrow } from "../lib/contracts";
 import { BaseError, parseEther } from "viem";
-import { relayTransaction } from "../lib/relayTransaction";
 
 function normalizeContractError(error: unknown) {
   if (error instanceof BaseError) {
@@ -54,7 +53,7 @@ export function useProofPayEscrow() {
     args,
     value,
   }: {
-    functionName: "createJob" | "acceptJob" | "submitProof" | "releasePayment" | "claimPaymentIfClientInactive";
+    functionName: "createJob" | "acceptJob" | "submitProof" | "releasePayment";
     args: readonly unknown[];
     value?: bigint;
   }) => {
@@ -77,12 +76,19 @@ export function useProofPayEscrow() {
         }
       }
 
-      const { txHash } = await relayTransaction({
+      const { request } = await publicClient.simulateContract({
+        account: walletClient.account,
+        address: ProofPayEscrow.address,
+        abi: ProofPayEscrow.abi,
         functionName,
         args,
         value,
-        userAddress: walletClient.account.address,
-        signMessage: (message) => walletClient.signMessage({ message }),
+      });
+
+      const gas = request.gas ? (request.gas * 12n) / 10n : undefined;
+      const txHash = await walletClient.writeContract({
+        ...request,
+        gas,
       });
 
       setHash(txHash);
@@ -121,18 +127,11 @@ export function useProofPayEscrow() {
       args: [jobId, parseEther(amount)],
     });
 
-  const claimPaymentIfClientInactive = (jobId: bigint) =>
-    writeWithEstimatedGas({
-      functionName: "claimPaymentIfClientInactive",
-      args: [jobId],
-    });
-
   return {
     createJob,
     acceptJob,
     submitProof,
     releasePayment,
-    claimPaymentIfClientInactive,
     hash,
     error,
     isPending,

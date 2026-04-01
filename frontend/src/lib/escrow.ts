@@ -1,7 +1,6 @@
 import { create } from '@web3-storage/w3up-client';
 import { ethers } from 'ethers';
 import { encryptForClient } from './lit';
-import { relayTransaction } from './relayTransaction';
 
 // ProofPayEscrow ABI snippet for submitProof and jobs
 const ESCROW_ABI = [
@@ -46,21 +45,19 @@ export async function encryptUploadAndSubmitProof(file: File, jobId: number, sig
     const cid = link.toString();
     console.log("Encrypted file uploaded. CID:", cid);
 
-    // 4. Attach CID to the milestone in ProofPayEscrow via relayer (gas sponsored)
+    // 4. Attach CID to the milestone in ProofPayEscrow
     console.log(`Submitting proof for Job ID: ${jobId}...`);
-    const userAddress = await signer.getAddress() as `0x${string}`;
-    const { txHash } = await relayTransaction({
-      functionName: "submitProof",
-      args: [jobId, cid],
-      userAddress,
-      signMessage: (message) => signer.signMessage(message) as Promise<`0x${string}`>,
-    });
-    console.log("Relay request sent, tx hash:", txHash);
+    const tx = await escrowContract.submitProof(jobId, cid);
+    console.log("Transaction sent:", tx.hash);
+
+    const receipt = await tx.wait();
+    console.log("Transaction confirmed in block:", receipt.blockNumber);
 
     return {
       cid,
       encryptionMetadata: metadata,
-      txHash,
+      txHash: tx.hash,
+      receipt,
     };
   } catch (error) {
     console.error("Error in encryptUploadAndSubmitProof:", error);
