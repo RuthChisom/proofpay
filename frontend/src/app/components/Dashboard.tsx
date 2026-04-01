@@ -17,12 +17,11 @@ function JobCard({
   activeTab,
   userAddress,
   metadata,
-  releaseAmountInput,
-  onReleaseAmountChange,
   onAccept,
   onReject,
   onOpenProofModal,
   onReleasePayment,
+  onRejectProof,
   onClaimInactive,
   onEdit,
   isPending,
@@ -32,12 +31,11 @@ function JobCard({
   activeTab: "client" | "freelancer";
   userAddress: string;
   metadata: Record<string, any>;
-  releaseAmountInput: string;
-  onReleaseAmountChange: (val: string) => void;
   onAccept: (id: bigint) => void;
   onReject: (id: bigint) => void;
   onOpenProofModal: (id: bigint) => void;
   onReleasePayment: (id: bigint, amount: string) => void;
+  onRejectProof: (id: bigint, reason: string) => void;
   onClaimInactive: (id: bigint) => void;
   onEdit: (id: string) => void;
   isPending: boolean;
@@ -69,12 +67,31 @@ function JobCard({
     ? Number((job.releasedAmount * 100n) / job.totalAmount)
     : 0;
 
+  // Local state for proof rejection flow
+  const [rejectReason, setRejectReason] = useState("");
+  const [showRejectInput, setShowRejectInput] = useState(false);
+
+  // Remaining funds to release
+  const remaining = (job.totalAmount ?? 0n) - (job.releasedAmount ?? 0n);
+
   // Step 6: auto-claim eligibility using on-chain proofSubmittedAt
   const nowSecs = Math.floor(Date.now() / 1000);
   const canAutoRelease =
     isProofSubmitted &&
     job.proofSubmittedAt > 0n &&
     BigInt(nowSecs) >= job.proofSubmittedAt + BigInt(48 * 3600);
+
+  // Countdown to auto-release (ms remaining)
+  const autoReleaseMs =
+    isProofSubmitted && job.proofSubmittedAt > 0n
+      ? Number(job.proofSubmittedAt) * 1000 + 48 * 3600 * 1000 - Date.now()
+      : -1;
+  const autoReleaseCountdown = (() => {
+    if (autoReleaseMs <= 0) return null;
+    const h = Math.floor(autoReleaseMs / 3600000);
+    const m = Math.floor((autoReleaseMs % 3600000) / 60000);
+    return `${h}h ${m}m`;
+  })();
 
   const isOverdue = (deadline: string) => {
     if (!deadline) return false;
@@ -210,9 +227,10 @@ function JobCard({
         </div>
       )}
 
-      {/* Step 4: Partial payment release UI (client only, after proof submitted) */}
+      {/* Payment approval / rejection (client only, after proof submitted) */}
       {activeTab === "client" && isProofSubmitted && !isCompleted && (
         <div className="mb-6 p-6 bg-green-50 dark:bg-green-900/10 rounded-2xl border border-green-100 dark:border-green-900/30 space-y-4">
+          {/* Escrow summary */}
           <div className="grid grid-cols-3 gap-3 text-center">
             <div>
               <span className="text-[10px] font-bold text-zinc-400 uppercase block">Total Escrow</span>
@@ -224,28 +242,81 @@ function JobCard({
             </div>
             <div>
               <span className="text-[10px] font-bold text-zinc-400 uppercase block">Remaining</span>
-              <span className="text-sm font-black text-indigo-600">{formatEther(((job.totalAmount ?? 0n) - (job.releasedAmount ?? 0n)) as unknown as bigint)} FLOW</span>
+              <span className="text-sm font-black text-indigo-600">{formatEther(remaining)} FLOW</span>
             </div>
           </div>
-          <div className="flex gap-3">
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              placeholder="Amount to release (FLOW)"
-              value={releaseAmountInput}
-              onChange={(e) => onReleaseAmountChange(e.target.value)}
-              className="flex-1 p-3 rounded-xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700 text-sm"
-            />
-            <button
-              onClick={() => onReleasePayment(job.id, releaseAmountInput)}
-              disabled={isPending || isConfirming || !releaseAmountInput}
-              className="px-6 py-3 bg-green-600 text-white rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-green-700 transition-all disabled:opacity-50"
-            >
-              {(isPending || isConfirming) ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle size={16} />}
-              Release
-            </button>
-          </div>
+
+          {/* Countdown to auto-release */}
+          {autoReleaseCountdown && (
+            <div className="flex items-center gap-2 text-xs text-amber-600 font-semibold">
+              <Clock size={14} />
+              Auto-release in {autoReleaseCountdown}
+            </div>
+          )}
+
+          {/* Previous rejection reason */}
+          {jobMeta.proofRejectedReason && (
+            <div className="p-3 rounded-xl bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 text-xs text-red-600 font-medium">
+              Awaiting new submission — Rejection reason: {jobMeta.proofRejectedReason}
+            </div>
+          )}
+
+          <p className="text-xs text-zinc-500">Full payment will be released upon approval.</p>
+
+          {/* Reject reason input */}
+          {showRejectInput && (
+            <div className="space-y-2">
+              <input
+                type="text"
+                placeholder="Reason for rejection (required)"
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                className="w-full p-3 rounded-xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700 text-sm"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setShowRejectInput(false); setRejectReason(""); }}
+                  className="flex-1 py-2 bg-zinc-100 dark:bg-zinc-800 rounded-xl font-bold text-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    if (rejectReason.trim()) {
+                      onRejectProof(job.id, rejectReason.trim());
+                      setShowRejectInput(false);
+                      setRejectReason("");
+                    }
+                  }}
+                  disabled={!rejectReason.trim()}
+                  className="flex-1 py-2 bg-red-600 text-white rounded-xl font-bold text-xs disabled:opacity-50"
+                >
+                  Confirm Rejection
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Primary action buttons */}
+          {!showRejectInput && (
+            <div className="flex gap-3">
+              <button
+                onClick={() => onReleasePayment(job.id, formatEther(remaining))}
+                disabled={isPending || isConfirming || remaining === 0n}
+                className="flex-1 py-3 bg-green-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-green-700 transition-all disabled:opacity-50"
+              >
+                {(isPending || isConfirming) ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle size={16} />}
+                Approve Payment ✅
+              </button>
+              <button
+                onClick={() => setShowRejectInput(true)}
+                disabled={isPending || isConfirming}
+                className="flex-1 py-3 bg-red-50 dark:bg-red-900/10 text-red-600 rounded-xl font-bold text-sm border border-red-100 dark:border-red-900/30 hover:bg-red-100 transition-all disabled:opacity-50"
+              >
+                Reject Proof ❌
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -584,6 +655,16 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
     showToast("Job rejected.", "info");
   };
 
+  const handleRejectProof = (jobId: bigint, reason: string) => {
+    const updated = {
+      ...metadata,
+      [jobId.toString()]: { ...metadata[jobId.toString()], proofRejectedReason: reason },
+    };
+    setMetadata(updated);
+    localStorage.setItem("proofpay_metadata", JSON.stringify(updated));
+    showToast("Proof rejected. Awaiting new submission.", "info");
+  };
+
   const isOverdue = (deadline: string) => !!deadline && new Date(deadline).getTime() < Date.now();
 
   console.log("[Dashboard] userAddress:", userAddress, "activeTab:", activeTab);
@@ -741,12 +822,11 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
                 activeTab={activeTab}
                 userAddress={userAddress}
                 metadata={metadata}
-                releaseAmountInput={releaseAmountInputs[selectedJob.id.toString()] || ""}
-                onReleaseAmountChange={(val) => setReleaseAmountInputs((prev) => ({ ...prev, [selectedJob.id.toString()]: val }))}
                 onAccept={acceptJob}
                 onReject={handleReject}
                 onOpenProofModal={setSubmittingProofJobId}
                 onReleasePayment={handleReleasePayment}
+                onRejectProof={handleRejectProof}
                 onClaimInactive={handleClaimInactive}
                 onEdit={(id) => {
                   setSelectedJobId(null);
