@@ -26,6 +26,9 @@ function normalizeContractError(error: unknown) {
     if (/EmptyJobTitle/i.test(message)) {
       return new Error("Job title cannot be empty.");
     }
+    if (/exceeds.{0,30}balance|insufficient.{0,20}funds|total cost/i.test(message)) {
+      return new Error("Insufficient balance. Your wallet does not have enough FLOW to cover the payment amount plus gas fees.");
+    }
 
     return new Error(message);
   }
@@ -50,7 +53,7 @@ export function useProofPayEscrow() {
     args,
     value,
   }: {
-    functionName: "createJob" | "acceptJob" | "submitProof" | "releasePayment" | "claimPaymentIfClientInactive";
+    functionName: "createJob" | "acceptJob" | "submitProof" | "releasePayment";
     args: readonly unknown[];
     value?: bigint;
   }) => {
@@ -66,6 +69,13 @@ export function useProofPayEscrow() {
     setError(null);
 
     try {
+      if (value !== undefined) {
+        const balance = await publicClient.getBalance({ address: walletClient.account.address });
+        if (balance < value) {
+          throw new Error("Insufficient balance. Your wallet does not have enough FLOW to cover the payment amount plus gas fees.");
+        }
+      }
+
       const { request } = await publicClient.simulateContract({
         account: walletClient.account,
         address: ProofPayEscrow.address,
@@ -117,18 +127,11 @@ export function useProofPayEscrow() {
       args: [jobId, parseEther(amount)],
     });
 
-  const claimPaymentIfClientInactive = (jobId: bigint) =>
-    writeWithEstimatedGas({
-      functionName: "claimPaymentIfClientInactive",
-      args: [jobId],
-    });
-
   return {
     createJob,
     acceptJob,
     submitProof,
     releasePayment,
-    claimPaymentIfClientInactive,
     hash,
     error,
     isPending,

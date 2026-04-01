@@ -49,7 +49,7 @@ export async function encryptUploadAndSubmitProof(file: File, jobId: number, sig
     console.log(`Submitting proof for Job ID: ${jobId}...`);
     const tx = await escrowContract.submitProof(jobId, cid);
     console.log("Transaction sent:", tx.hash);
-    
+
     const receipt = await tx.wait();
     console.log("Transaction confirmed in block:", receipt.blockNumber);
 
@@ -57,7 +57,7 @@ export async function encryptUploadAndSubmitProof(file: File, jobId: number, sig
       cid,
       encryptionMetadata: metadata,
       txHash: tx.hash,
-      receipt
+      receipt,
     };
   } catch (error) {
     console.error("Error in encryptUploadAndSubmitProof:", error);

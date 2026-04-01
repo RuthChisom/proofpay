@@ -17,13 +17,11 @@ function JobCard({
   activeTab,
   userAddress,
   metadata,
-  releaseAmountInput,
-  onReleaseAmountChange,
   onAccept,
   onReject,
   onOpenProofModal,
   onReleasePayment,
-  onClaimInactive,
+  onRejectProof,
   onEdit,
   isPending,
   isConfirming,
@@ -32,13 +30,11 @@ function JobCard({
   activeTab: "client" | "freelancer";
   userAddress: string;
   metadata: Record<string, any>;
-  releaseAmountInput: string;
-  onReleaseAmountChange: (val: string) => void;
   onAccept: (id: bigint) => void;
   onReject: (id: bigint) => void;
   onOpenProofModal: (id: bigint) => void;
   onReleasePayment: (id: bigint, amount: string) => void;
-  onClaimInactive: (id: bigint) => void;
+  onRejectProof: (id: bigint, reason: string) => void;
   onEdit: (id: string) => void;
   isPending: boolean;
   isConfirming: boolean;
@@ -69,12 +65,13 @@ function JobCard({
     ? Number((job.releasedAmount * 100n) / job.totalAmount)
     : 0;
 
-  // Step 6: auto-claim eligibility using on-chain proofSubmittedAt
-  const nowSecs = Math.floor(Date.now() / 1000);
-  const canAutoRelease =
-    isProofSubmitted &&
-    job.proofSubmittedAt > 0n &&
-    BigInt(nowSecs) >= job.proofSubmittedAt + BigInt(48 * 3600);
+  // Local state for proof rejection flow
+  const [rejectReason, setRejectReason] = useState("");
+  const [showRejectInput, setShowRejectInput] = useState(false);
+
+  // Remaining funds to release
+  const remaining = ((job.totalAmount ?? 0n) - (job.releasedAmount ?? 0n)) as unknown as bigint;
+
 
   const isOverdue = (deadline: string) => {
     if (!deadline) return false;
@@ -210,9 +207,10 @@ function JobCard({
         </div>
       )}
 
-      {/* Step 4: Partial payment release UI (client only, after proof submitted) */}
+      {/* Payment approval / rejection (client only, after proof submitted) */}
       {activeTab === "client" && isProofSubmitted && !isCompleted && (
         <div className="mb-6 p-6 bg-green-50 dark:bg-green-900/10 rounded-2xl border border-green-100 dark:border-green-900/30 space-y-4">
+          {/* Escrow summary */}
           <div className="grid grid-cols-3 gap-3 text-center">
             <div>
               <span className="text-[10px] font-bold text-zinc-400 uppercase block">Total Escrow</span>
@@ -224,28 +222,73 @@ function JobCard({
             </div>
             <div>
               <span className="text-[10px] font-bold text-zinc-400 uppercase block">Remaining</span>
-              <span className="text-sm font-black text-indigo-600">{formatEther(((job.totalAmount ?? 0n) - (job.releasedAmount ?? 0n)) as unknown as bigint)} FLOW</span>
+              <span className="text-sm font-black text-indigo-600">{formatEther(remaining)} FLOW</span>
             </div>
           </div>
-          <div className="flex gap-3">
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              placeholder="Amount to release (FLOW)"
-              value={releaseAmountInput}
-              onChange={(e) => onReleaseAmountChange(e.target.value)}
-              className="flex-1 p-3 rounded-xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700 text-sm"
-            />
-            <button
-              onClick={() => onReleasePayment(job.id, releaseAmountInput)}
-              disabled={isPending || isConfirming || !releaseAmountInput}
-              className="px-6 py-3 bg-green-600 text-white rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-green-700 transition-all disabled:opacity-50"
-            >
-              {(isPending || isConfirming) ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle size={16} />}
-              Release
-            </button>
-          </div>
+
+          {/* Previous rejection reason */}
+          {jobMeta.proofRejectedReason && (
+            <div className="p-3 rounded-xl bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 text-xs text-red-600 font-medium">
+              Awaiting new submission — Rejection reason: {jobMeta.proofRejectedReason}
+            </div>
+          )}
+
+          <p className="text-xs text-zinc-500">Full payment will be released upon approval.</p>
+
+          {/* Reject reason input */}
+          {showRejectInput && (
+            <div className="space-y-2">
+              <input
+                type="text"
+                placeholder="Reason for rejection (required)"
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                className="w-full p-3 rounded-xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700 text-sm"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setShowRejectInput(false); setRejectReason(""); }}
+                  className="flex-1 py-2 bg-zinc-100 dark:bg-zinc-800 rounded-xl font-bold text-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    if (rejectReason.trim()) {
+                      onRejectProof(job.id, rejectReason.trim());
+                      setShowRejectInput(false);
+                      setRejectReason("");
+                    }
+                  }}
+                  disabled={!rejectReason.trim()}
+                  className="flex-1 py-2 bg-red-600 text-white rounded-xl font-bold text-xs disabled:opacity-50"
+                >
+                  Confirm Rejection
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Primary action buttons */}
+          {!showRejectInput && (
+            <div className="flex gap-3">
+              <button
+                onClick={() => onReleasePayment(job.id, formatEther(remaining))}
+                disabled={isPending || isConfirming || remaining === 0n}
+                className="flex-1 py-3 bg-green-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-green-700 transition-all disabled:opacity-50"
+              >
+                {(isPending || isConfirming) ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle size={16} />}
+                Approve Payment ✅
+              </button>
+              <button
+                onClick={() => setShowRejectInput(true)}
+                disabled={isPending || isConfirming}
+                className="flex-1 py-3 bg-red-50 dark:bg-red-900/10 text-red-600 rounded-xl font-bold text-sm border border-red-100 dark:border-red-900/30 hover:bg-red-100 transition-all disabled:opacity-50"
+              >
+                Reject Proof ❌
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -275,22 +318,64 @@ function JobCard({
             <UploadCloud size={18} /> {isProofSubmitted ? "Update Proof" : "Submit Proof"}
           </button>
         )}
-        {/* Step 6: auto-claim after 48h */}
-        {activeTab === "freelancer" && canAutoRelease && !isCompleted && (
-          <button
-            onClick={() => onClaimInactive(job.id)}
-            disabled={isPending || isConfirming}
-            className="px-8 py-3 bg-amber-600 text-white rounded-2xl font-bold flex items-center gap-2 hover:bg-amber-700 animate-pulse shadow-lg shadow-amber-500/20 disabled:opacity-50"
-          >
-            <Clock size={18} /> Claim Payment (Auto-Release)
-          </button>
-        )}
         {activeTab === "client" && isOpen && (
           <button className="px-8 py-3 border-2 border-red-200 text-red-500 rounded-2xl font-bold hover:bg-red-50 transition-all flex items-center gap-2">
             <XCircle size={18} /> Cancel Job
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── Compact list row ─────────────────────────────────────────────────────────
+function JobRow({
+  job,
+  metadata,
+  onViewDetails,
+}: {
+  job: any;
+  metadata: Record<string, any>;
+  onViewDetails: () => void;
+}) {
+  const jobMeta = metadata[job.id.toString()] || {};
+
+  const isCompleted = job.status === JobStatus.COMPLETED;
+  const isProofSubmitted = job.status === JobStatus.PROOF_SUBMITTED;
+  const isAccepted = job.status === JobStatus.ACCEPTED;
+
+  const statusLabel = isCompleted ? "Completed"
+    : isProofSubmitted ? "In Review"
+    : isAccepted ? "Ongoing"
+    : "Pending";
+
+  const statusStyle = isCompleted ? "bg-green-100 text-green-700"
+    : isProofSubmitted ? "bg-amber-100 text-amber-700"
+    : isAccepted ? "bg-blue-100 text-blue-700"
+    : "bg-zinc-100 text-zinc-700";
+
+  let dueDateDisplay = "No deadline";
+  if (jobMeta.deadline) {
+    dueDateDisplay = new Date(jobMeta.deadline).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  } else if (job.createdAt) {
+    dueDateDisplay = "Created " + new Date(Number(job.createdAt) * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  }
+
+  return (
+    <div className="flex items-center justify-between p-4 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm hover:shadow-md transition-all gap-4">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-bold truncate">{job.jobTitle || jobMeta.title || `Job #${job.id.toString()}`}</p>
+        <p className="text-xs text-zinc-400 mt-0.5">{dueDateDisplay}</p>
+      </div>
+      <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shrink-0 ${statusStyle}`}>
+        {statusLabel}
+      </span>
+      <button
+        onClick={onViewDetails}
+        className="px-4 py-2 text-xs font-bold text-indigo-600 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors shrink-0"
+      >
+        View Details
+      </button>
     </div>
   );
 }
@@ -348,9 +433,10 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
   });
   // Step 4: per-job release amount inputs
   const [releaseAmountInputs, setReleaseAmountInputs] = useState<Record<string, string>>({});
+  const [selectedJobId, setSelectedJobId] = useState<bigint | null>(null);
 
   const { jobs, isLoading: jobsLoading, refetch, jobCount } = useJobs();
-  const { createJob, acceptJob, submitProof, releasePayment, claimPaymentIfClientInactive, isPending, isConfirming, isConfirmed, error: txError } = useProofPayEscrow();
+  const { createJob, acceptJob, submitProof, releasePayment, isPending, isConfirming, isConfirmed, error: txError } = useProofPayEscrow();
 
   const [activeTab, setActiveTab] = useState<"client" | "freelancer">("client");
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
@@ -513,14 +599,6 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
     }
   };
 
-  const handleClaimInactive = async (jobId: bigint) => {
-    try {
-      await claimPaymentIfClientInactive(jobId);
-    } catch {
-      showToast("Claim failed.", "error");
-    }
-  };
-
   const handleReject = (jobId: bigint) => {
     const updated = {
       ...metadata,
@@ -529,6 +607,16 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
     setMetadata(updated);
     localStorage.setItem("proofpay_metadata", JSON.stringify(updated));
     showToast("Job rejected.", "info");
+  };
+
+  const handleRejectProof = (jobId: bigint, reason: string) => {
+    const updated = {
+      ...metadata,
+      [jobId.toString()]: { ...metadata[jobId.toString()], proofRejectedReason: reason },
+    };
+    setMetadata(updated);
+    localStorage.setItem("proofpay_metadata", JSON.stringify(updated));
+    showToast("Proof rejected. Awaiting new submission.", "info");
   };
 
   const isOverdue = (deadline: string) => !!deadline && new Date(deadline).getTime() < Date.now();
@@ -668,6 +756,43 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
           </div>
         </div>
       )}
+
+      {/* Job Detail Modal */}
+      {selectedJobId !== null && (() => {
+        const selectedJob = filteredJobs.find((j) => j?.id === selectedJobId);
+        if (!selectedJob) return null;
+        const jobMeta = metadata[selectedJob.id.toString()] || {};
+        return (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-start justify-center p-4 overflow-y-auto" onClick={() => setSelectedJobId(null)}>
+            <div className="w-full max-w-2xl my-8 relative" onClick={(e) => e.stopPropagation()}>
+              <button
+                onClick={() => setSelectedJobId(null)}
+                className="absolute -top-3 -right-3 z-10 p-2 rounded-full bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-100 shadow-md transition-colors"
+              >
+                <XCircle size={20} />
+              </button>
+              <JobCard
+                job={selectedJob}
+                activeTab={activeTab}
+                userAddress={userAddress}
+                metadata={metadata}
+                onAccept={acceptJob}
+                onReject={handleReject}
+                onOpenProofModal={setSubmittingProofJobId}
+                onReleasePayment={handleReleasePayment}
+                onRejectProof={handleRejectProof}
+                onEdit={(id) => {
+                  setSelectedJobId(null);
+                  setEditingJobId(id);
+                  setFormData({ ...formData, title: jobMeta.title || "", description: jobMeta.description || "", deadline: jobMeta.deadline || "" });
+                }}
+                isPending={isPending}
+                isConfirming={isConfirming}
+              />
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Dashboard header */}
       <div className="bg-indigo-600 rounded-3xl p-8 text-white flex flex-col md:flex-row justify-between items-center shadow-2xl shadow-indigo-500/20 gap-6">
@@ -838,25 +963,11 @@ export default function Dashboard({ userAddress }: { userAddress: string }) {
               const jobMeta = metadata[job.id.toString()] || {};
               if (jobMeta.rejected && activeTab === "freelancer") return null;
               return (
-                <JobCard
+                <JobRow
                   key={job.id.toString()}
                   job={job}
-                  activeTab={activeTab}
-                  userAddress={userAddress}
                   metadata={metadata}
-                  releaseAmountInput={releaseAmountInputs[job.id.toString()] || ""}
-                  onReleaseAmountChange={(val) => setReleaseAmountInputs((prev) => ({ ...prev, [job.id.toString()]: val }))}
-                  onAccept={acceptJob}
-                  onReject={handleReject}
-                  onOpenProofModal={setSubmittingProofJobId}
-                  onReleasePayment={handleReleasePayment}
-                  onClaimInactive={handleClaimInactive}
-                  onEdit={(id) => {
-                    setEditingJobId(id);
-                    setFormData({ ...formData, title: jobMeta.title || "", description: jobMeta.description || "", deadline: jobMeta.deadline || "" });
-                  }}
-                  isPending={isPending}
-                  isConfirming={isConfirming}
+                  onViewDetails={() => setSelectedJobId(job.id)}
                 />
               );
             })
