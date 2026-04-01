@@ -72,7 +72,7 @@ function JobCard({
   const [showRejectInput, setShowRejectInput] = useState(false);
 
   // Remaining funds to release
-  const remaining = (job.totalAmount ?? 0n) - (job.releasedAmount ?? 0n);
+  const remaining = ((job.totalAmount ?? 0n) - (job.releasedAmount ?? 0n)) as unknown as bigint;
 
   // Step 6: auto-claim eligibility using on-chain proofSubmittedAt
   const nowSecs = Math.floor(Date.now() / 1000);
